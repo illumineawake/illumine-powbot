@@ -1,0 +1,30 @@
+plugins {
+    id 'java' // Alternative id("java")
+    id "org.jetbrains.kotlin.jvm" version "1.7.10"
+}
+
+group 'org.illumine-powbot' // Change to a different name
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    google()
+    maven {
+        url = uri("https://repo.powbot.org/releases")
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+// If failing, alternatively use ""
+dependencies {
+    implementation('org.powbot:client-sdk:3.0.0-SNAPSHOT') // Can replace with `implementation('org.powbot:client-sdk:3+')` where + tries to pull the latest version
+    implementation('org.powbot:client-sdk-loader:3.0.0-SNAPSHOT') // Can replace with `implementation('org.powbot:client-sdk-loader:3+')` where + tries to pull the latest version
+    implementation('com.google.guava:guava:31.1-jre') // needed for @Subscribe annotations / event bus
+    implementation('com.fasterxml.jackson.core:jackson-core:2.13.0')
+}
