@@ -11,7 +11,7 @@ import org.powbot.api.rt4.Players;
 
 public class AttackTask extends SandCrabsTask {
 
-    private static final String STATUS = "Holding camp";
+    private static final String STATUS = "Attacking Sand Crabs";
 
     public AttackTask(SandCrabsScript script) {
         super(script);
@@ -38,12 +38,12 @@ public class AttackTask extends SandCrabsTask {
         // proactively attack an available crab nearby.
         if (!script.isInCombat()) {
             long noExpMs = script.minTrackedSkillExpDelta();
-            long threshold = Math.max(2500L, Math.min(6000L, script.getCurrentNoCombatThresholdMillis() / 2));
+            long threshold = Math.max(2500, Math.min(6000, script.getCurrentNoCombatThresholdMillis() / 2));
 
             if (noExpMs >= threshold) {
                 Npc target = Npcs.stream()
-                        .name("Sand crab", "Sand Crab")
-                        .within(camp, 7.0)
+                        .name( "Sand Crab")
+                        .within(camp, 7)
                         .filtered(n -> n.valid() && !n.interacting().valid())
                         .nearest()
                         .first();

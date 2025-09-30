@@ -1,10 +1,6 @@
 package org.illumine.sandcrabs;
 
-import org.illumine.sandcrabs.tasks.AttackTask;
-import org.illumine.sandcrabs.tasks.BankAndStopTask;
-import org.illumine.sandcrabs.tasks.EatFoodTask;
-import org.illumine.sandcrabs.tasks.ResetAggroTask;
-import org.illumine.sandcrabs.tasks.TravelToCampTask;
+import org.illumine.sandcrabs.tasks.*;
 import org.illumine.taskscript.Task;
 import org.illumine.taskscript.TaskScript;
 import org.powbot.api.Area;
@@ -51,7 +47,7 @@ import java.util.Comparator;
 @ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
 
-    public static final Tile[] CAMP_TILES = {
+    public static final Tile[] SPOT_TILES = {
             new Tile(1776, 3468, 0),
             new Tile(1773, 3461, 0),
             new Tile(1765, 3468, 0)
@@ -85,10 +81,10 @@ public class SandCrabsScript extends TaskScript {
     private int eatMinPercent = DEFAULT_EAT_MIN_PERCENT;
     private int eatMaxPercent = DEFAULT_EAT_MAX_PERCENT;
     private int currentEatThresholdPercent = DEFAULT_EAT_MAX_PERCENT;
-    private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000L;
+    private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000;
     // Deprecated: previously used to decide when to enable run manually
     private Tile currentCampTile;
-    private long lastWorldHopMillis = 0L;
+    private long lastWorldHopMillis = 0;
     private long lastDormantSeenTime = System.currentTimeMillis();
     private boolean dormantWarningShown = false;
 
@@ -130,7 +126,7 @@ public class SandCrabsScript extends TaskScript {
                 new BankAndStopTask(this),
                 new EatFoodTask(this),
                 new ResetAggroTask(this),
-                new org.illumine.sandcrabs.tasks.ManageLevellingTask(this),
+                new ManageLevellingTask(this),
                 new TravelToCampTask(this),
                 new AttackTask(this)
         );
@@ -142,7 +138,7 @@ public class SandCrabsScript extends TaskScript {
     }
 
     public Tile[] getCampTiles() {
-        return Arrays.copyOf(CAMP_TILES, CAMP_TILES.length);
+        return Arrays.copyOf(SPOT_TILES, SPOT_TILES.length);
     }
 
     public Area getResetArea() {
@@ -234,7 +230,7 @@ public class SandCrabsScript extends TaskScript {
         }
         Npc dormant = Npcs.stream()
                 .name("Sandy rocks")
-                .within(local, 2.0)
+                .within(local, 2)
                 .first();
         if (dormant != null && dormant.valid()) {
             lastDormantSeenTime = System.currentTimeMillis();
@@ -257,7 +253,7 @@ public class SandCrabsScript extends TaskScript {
             return true;
         }
         return Players.stream()
-                .within(camp, 2.0)
+                .within(camp, 2)
                 .filtered(player -> !player.equals(local))
                 .first()
                 .valid();
@@ -265,7 +261,7 @@ public class SandCrabsScript extends TaskScript {
 
     public List<Tile> eligibleCampTiles() {
         List<Tile> eligible = new ArrayList<>();
-        for (Tile camp : CAMP_TILES) {
+        for (Tile camp : SPOT_TILES) {
             if (!isCampTileOccupied(camp)) {
                 eligible.add(camp);
             }
@@ -288,7 +284,7 @@ public class SandCrabsScript extends TaskScript {
 
         // Pair with sandcrabs no-combat timing: ensure we've been out of combat long enough
         long requiredNoCombatMs = getCurrentNoCombatThresholdMillis();
-        long cap = Math.max(4_000L, Math.min(20_000L, requiredNoCombatMs));
+        long cap = Math.max(4000, Math.min(20000, requiredNoCombatMs));
         if (minTrackedSkillExpDelta() < cap) {
             if (getLog() != null) {
                 getLog().info("Waiting " + cap + "ms of no combat before hopping...");
@@ -348,9 +344,9 @@ public class SandCrabsScript extends TaskScript {
         }
         // Heuristics: interacting with an NPC or visible health bar indicates combat
         try {
-            return (p.interacting() != null && p.interacting().valid()) || p.healthBarVisible();
+            return (p.interacting().valid()) || p.healthBarVisible();
         } catch (Exception ignored) {
-            return (p.interacting() != null && p.interacting().valid());
+            return (p.interacting().valid());
         }
     }
 
@@ -398,7 +394,7 @@ public class SandCrabsScript extends TaskScript {
         if (useFood) {
             Object foodValue = getOption("Food Name");
             String name = foodValue instanceof String ? (String) foodValue : "Lobster";
-            name = name == null ? "Lobster" : name.trim();
+            name = name.trim();
             if (name.isEmpty()) {
                 // Pre-populate default if the field is blank
                 name = "Lobster";
