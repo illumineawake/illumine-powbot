@@ -1,0 +1,14 @@
+# Gradle and build artifacts
+build/
+.gradle/
+
+# IDE files
+.idea/
+*.iml
+
+# Logs and temporary files
+*.log
+out/
+/.classpath
+/.project
+/.settings/
