@@ -104,6 +104,11 @@ public class SandCrabsScript extends TaskScript {
         );
     }
 
+    public static void main(String[] args) {
+        // Ensure exactly one device is connected via ADB
+        new SandCrabsScript().startScript();
+    }
+
     public Tile[] getCampTiles() {
         return Arrays.copyOf(CAMP_TILES, CAMP_TILES.length);
     }
@@ -243,6 +248,32 @@ public class SandCrabsScript extends TaskScript {
     }
 
     public boolean hopToNextWorld() {
+        // Do not hop while in combat; wait until out of combat first
+        if (isInCombat()) {
+            if (getLog() != null) {
+                getLog().info("In combat; waiting to hop worlds...");
+            }
+            // Wait up to ~30 seconds for combat to end
+            boolean out = Condition.wait(() -> !isInCombat(), 200, 150);
+            if (!out) {
+                return false;
+            }
+        }
+
+        // Pair with sandcrabs no-combat timing: ensure we've been out of combat long enough
+        long requiredNoCombatMs = getCurrentNoCombatThresholdMillis();
+        long cap = Math.max(4_000L, Math.min(20_000L, requiredNoCombatMs));
+        if (minTrackedSkillExpDelta() < cap) {
+            if (getLog() != null) {
+                getLog().info("Waiting " + cap + "ms of no combat before hopping...");
+            }
+            int attempts = (int) Math.ceil(cap / 200.0) + 5;
+            boolean waited = Condition.wait(() -> minTrackedSkillExpDelta() >= cap, 200, attempts);
+            if (!waited) {
+                return false;
+            }
+        }
+
         long now = System.currentTimeMillis();
         if (now - lastWorldHopMillis < WORLD_HOP_COOLDOWN_MS) {
             return false;
@@ -282,6 +313,19 @@ public class SandCrabsScript extends TaskScript {
         Condition.wait(Game::loggedIn, 200, 50);
         resetCampSelection();
         return true;
+    }
+
+    public boolean isInCombat() {
+        Player p = Players.local();
+        if (p == null || !p.valid()) {
+            return false;
+        }
+        // Heuristics: interacting with an NPC or visible health bar indicates combat
+        try {
+            return (p.interacting() != null && p.interacting().valid()) || p.healthBarVisible();
+        } catch (Exception ignored) {
+            return (p.interacting() != null && p.interacting().valid());
+        }
     }
 
     public boolean canAttemptWorldHop() {
