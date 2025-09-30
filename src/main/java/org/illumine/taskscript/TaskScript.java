@@ -96,7 +96,7 @@ public abstract class TaskScript extends AbstractScript {
 
         // No tasks validated
         setCurrentStatus("Idle");
-        Condition.sleep(Random.nextInt(25, 41));
+        Condition.sleep(Random.nextInt(0, 25));
     }
 
     @Override
