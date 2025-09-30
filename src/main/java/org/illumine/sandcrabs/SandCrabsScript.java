@@ -12,6 +12,7 @@ import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.Game;
+import org.powbot.api.rt4.Combat;
 import org.powbot.api.rt4.Inventory;
 import org.powbot.api.rt4.Item;
 // Note: Movement auto-run is handled by Powbot's web walking defaults
@@ -40,7 +41,14 @@ import java.util.Comparator;
 @ScriptConfiguration(name = "Food Name", description = "Food to consume", optionType = OptionType.STRING, defaultValue = "Lobster", visible = false)
 @ScriptConfiguration(name = "Eat Min %", description = "Minimum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "40")
 @ScriptConfiguration(name = "Eat Max %", description = "Maximum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "75")
-@ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.1.0")
+// Levelling controls
+@ScriptConfiguration(name = "Configure Levelling", description = "Enable skill levelling goals and switching", optionType = OptionType.BOOLEAN, defaultValue = "false")
+@ScriptConfiguration(name = "Levelling Mode", description = "Select levelling mode", optionType = OptionType.STRING, defaultValue = "On Limit", allowedValues = {"Within Range", "On Limit"}, visible = false)
+@ScriptConfiguration(name = "Max Attack", description = "Max Attack level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
+@ScriptConfiguration(name = "Max Strength", description = "Max Strength level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
+@ScriptConfiguration(name = "Max Defence", description = "Max Defence level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
+@ScriptConfiguration(name = "Keep Within Levels", description = "Keep skills within X levels of each other", optionType = OptionType.INTEGER, defaultValue = "5", visible = false)
+@ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
 
     public static final Tile[] CAMP_TILES = {
@@ -56,9 +64,10 @@ public class SandCrabsScript extends TaskScript {
     private static final int DEFAULT_EAT_MAX_PERCENT = 75;
     private static final int CLAMP_MIN_EAT_PERCENT = 1;
     private static final int CLAMP_MAX_EAT_PERCENT = 100;
+    private static final int MIN_LEVEL = 1;
+    private static final int MAX_LEVEL = 99;
     private static final int MIN_NO_COMBAT_SECONDS = 8;
     private static final int MAX_NO_COMBAT_SECONDS = 12;
-    // Powbot web walking auto-handles run toggling; no script-side thresholds needed
     private static final long WORLD_HOP_COOLDOWN_MS = 10_000L;
     private static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000L;
 
@@ -83,13 +92,34 @@ public class SandCrabsScript extends TaskScript {
     private long lastDormantSeenTime = System.currentTimeMillis();
     private boolean dormantWarningShown = false;
 
+    // Levelling config/state
+    public static final String MODE_WITHIN_RANGE = "Within Range";
+    public static final String MODE_ON_LIMIT = "On Limit";
+    private boolean levellingEnabled = false;
+    private String levellingMode = MODE_ON_LIMIT;
+    private int maxAttack = MAX_LEVEL;
+    private int maxStrength = MAX_LEVEL;
+    private int maxDefence = MAX_LEVEL;
+    private int keepWithin = 5;
+    private Skill initialLockedSkill = null; // Applies in Mode: On Limit only
+    private Skill currentTrainingSkill = null; // For overlay display
+
     @Override
     public void onStart() {
         readAndValidateConfiguration();
+        readAndValidateLevellingConfiguration();
         rollNextEatThreshold();
         rollNextNoCombatThreshold();
         // Powbot handles run automatically during web walking
         updateVisibility("Food Name", useFood);
+        updateLevellingVisibility();
+        // Capture initial style to lock starting skill for Mode: On Limit
+        try {
+            Combat.Style style = Combat.style();
+            initialLockedSkill = mapStyleToSkill(style);
+        } catch (Exception ignored) {
+            initialLockedSkill = null;
+        }
         super.onStart();
         initPaint();
     }
@@ -100,6 +130,7 @@ public class SandCrabsScript extends TaskScript {
                 new BankAndStopTask(this),
                 new EatFoodTask(this),
                 new ResetAggroTask(this),
+                new org.illumine.sandcrabs.tasks.ManageLevellingTask(this),
                 new TravelToCampTask(this),
                 new AttackTask(this)
         );
@@ -346,6 +377,7 @@ public class SandCrabsScript extends TaskScript {
                 .trackSkill(Skill.Magic)
                 .trackSkill(Skill.Hitpoints)
                 .addString("Status", this::getCurrentStatus)
+                .addString("Training", this::getTrainingStatus)
                 .build();
         addPaint(paint);
     }
@@ -377,6 +409,22 @@ public class SandCrabsScript extends TaskScript {
         }
     }
 
+    private void readAndValidateLevellingConfiguration() {
+        levellingEnabled = Boolean.TRUE.equals(getOption("Configure Levelling"));
+        Object modeVal = getOption("Levelling Mode");
+        String mode = (modeVal instanceof String) ? ((String) modeVal).trim() : MODE_ON_LIMIT;
+        if (!MODE_WITHIN_RANGE.equalsIgnoreCase(mode) && !MODE_ON_LIMIT.equalsIgnoreCase(mode)) {
+            mode = MODE_ON_LIMIT;
+        }
+        // Normalize to canonical labels
+        levellingMode = MODE_WITHIN_RANGE.equalsIgnoreCase(mode) ? MODE_WITHIN_RANGE : MODE_ON_LIMIT;
+
+        maxAttack = clampLevel(asInt(getOption("Max Attack"), MAX_LEVEL));
+        maxStrength = clampLevel(asInt(getOption("Max Strength"), MAX_LEVEL));
+        maxDefence = clampLevel(asInt(getOption("Max Defence"), MAX_LEVEL));
+        keepWithin = Math.max(1, Math.min(20, asInt(getOption("Keep Within Levels"), 5)));
+    }
+
     private int clampToBounds(int value) {
         if (value < CLAMP_MIN_EAT_PERCENT) {
             return CLAMP_MIN_EAT_PERCENT;
@@ -401,10 +449,163 @@ public class SandCrabsScript extends TaskScript {
         return fallback;
     }
 
+    private int clampLevel(int value) {
+        if (value < MIN_LEVEL) return MIN_LEVEL;
+        if (value > MAX_LEVEL) return MAX_LEVEL;
+        return value;
+    }
+
     // Removed: no longer needed with Powbot auto-run
 
     @ValueChanged(keyName = "Use Food")
     public void onUseFoodChanged(Boolean enabled) {
         updateVisibility("Food Name", Boolean.TRUE.equals(enabled));
+    }
+
+    @ValueChanged(keyName = "Configure Levelling")
+    public void onConfigureLevellingChanged(Boolean enabled) {
+        levellingEnabled = Boolean.TRUE.equals(enabled);
+        updateLevellingVisibility();
+    }
+
+    @ValueChanged(keyName = "Levelling Mode")
+    public void onLevellingModeChanged(String newMode) {
+        // Normalize and update visibility
+        String mode = newMode == null ? MODE_ON_LIMIT : newMode.trim();
+        levellingMode = MODE_WITHIN_RANGE.equalsIgnoreCase(mode) ? MODE_WITHIN_RANGE : MODE_ON_LIMIT;
+        updateLevellingVisibility();
+    }
+
+    private void updateLevellingVisibility() {
+        boolean show = levellingEnabled;
+        updateVisibility("Levelling Mode", show);
+        updateVisibility("Max Attack", show);
+        updateVisibility("Max Strength", show);
+        updateVisibility("Max Defence", show);
+        boolean showWithin = show && MODE_WITHIN_RANGE.equals(levellingMode);
+        updateVisibility("Keep Within Levels", showWithin);
+    }
+
+    public boolean isLevellingEnabled() {
+        return levellingEnabled;
+    }
+
+    public String getLevellingMode() {
+        return levellingMode;
+    }
+
+    public int getMaxFor(Skill skill) {
+        if (skill == Skill.Attack) return maxAttack;
+        if (skill == Skill.Strength) return maxStrength;
+        if (skill == Skill.Defence) return maxDefence;
+        return MAX_LEVEL;
+    }
+
+    public int realLevel(Skill skill) {
+        return Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, Skills.realLevel(skill)));
+    }
+
+    public boolean reachedLimit(Skill skill) {
+        return realLevel(skill) >= getMaxFor(skill);
+    }
+
+    public boolean allGoalsReached() {
+        return reachedLimit(Skill.Attack) && reachedLimit(Skill.Strength) && reachedLimit(Skill.Defence);
+    }
+
+    public Skill getInitialLockedSkill() {
+        return initialLockedSkill;
+    }
+
+    public int getKeepWithin() {
+        return keepWithin;
+    }
+
+    public void setCurrentTrainingSkill(Skill skill) {
+        currentTrainingSkill = skill;
+    }
+
+    public Skill getCurrentTrainingSkill() {
+        return currentTrainingSkill;
+    }
+
+    public String getTrainingStatus() {
+        if (!levellingEnabled) return "Off";
+        if (allGoalsReached()) return "All goals reached";
+        Skill s = currentTrainingSkill;
+        if (s == null) return "Training Pending";
+        String name = (s == Skill.Attack ? "Attack" : s == Skill.Strength ? "Strength" : s == Skill.Defence ? "Defence" : s.name());
+        int targetLevel = nextTargetLevel(s);
+        if (targetLevel <= 0) return "Training " + name;
+        return "Training " + name + " to " + targetLevel;
+    }
+
+    public Combat.Style styleFor(Skill skill) {
+        if (skill == Skill.Attack) return Combat.Style.ACCURATE;
+        if (skill == Skill.Strength) return Combat.Style.AGGRESSIVE;
+        if (skill == Skill.Defence) return Combat.Style.DEFENSIVE;
+        return Combat.Style.CONTROLLED;
+    }
+
+    public Skill mapStyleToSkill(Combat.Style style) {
+        if (style == null) return null;
+        switch (style) {
+            case ACCURATE: return Skill.Attack;
+            case AGGRESSIVE: return Skill.Strength;
+            case DEFENSIVE: return Skill.Defence;
+            default: return null; // CONTROLLED or unknown -> no lock
+        }
+    }
+
+    public int nextTargetLevel(Skill skill) {
+        if (!levellingEnabled || skill == null) return 0;
+        if (allGoalsReached()) return realLevel(skill);
+        if (MODE_ON_LIMIT.equals(levellingMode)) {
+            return getMaxFor(skill);
+        }
+
+        // MODE_WITHIN_RANGE
+        int current = realLevel(skill);
+        int ownLimit = getMaxFor(skill);
+
+        // Collect other eligible skills (not at limit)
+        java.util.List<Skill> others = new java.util.ArrayList<>();
+        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
+            if (s != skill && !reachedLimit(s)) {
+                others.add(s);
+            }
+        }
+
+        if (others.isEmpty()) {
+            return ownLimit; // No other skills to balance against
+        }
+
+        int highestOther = 0;
+        int minThreshold = Integer.MAX_VALUE;
+        for (Skill s : others) {
+            int lv = realLevel(s);
+            if (lv > highestOther) highestOther = lv;
+            int threshold = lv + getKeepWithin();
+            if (threshold < minThreshold) minThreshold = threshold;
+        }
+
+        boolean isTop = current >= highestOther;
+        if (isTop) {
+            // Switch away when we reach the earliest threshold among others
+            return Math.min(ownLimit, minThreshold);
+        }
+        // Catch-up target equals the highest other level (but not above our own max)
+        return Math.min(ownLimit, highestOther);
+    }
+
+    private int highestEligibleLevel() {
+        int max = 0;
+        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
+            if (!reachedLimit(s)) {
+                int lv = realLevel(s);
+                if (lv > max) max = lv;
+            }
+        }
+        return max;
     }
 }
