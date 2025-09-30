@@ -32,14 +32,14 @@ import java.util.List;
 @ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
 
-    public static final Tile[] SPOT_TILES = {
+    public static final List<Tile> SPOT_TILES = java.util.List.of(
             new Tile(1790, 3468, 0),
             new Tile(1776, 3468, 0),
             new Tile(1773, 3461, 0),
             new Tile(1765, 3468, 0),
             new Tile(1749, 3469, 0),
             new Tile(1738, 3468, 0)
-    };
+    );
 
     public static final Area RESET_AREA = new Area(new Tile(1741, 3501, 0), new Tile(1745, 3498, 0));
     public static final Tile SHORE_BANK_TILE = new Tile(1720, 3465, 0);
@@ -70,11 +70,13 @@ public class SandCrabsScript extends TaskScript {
     private int eatMaxPercent = DEFAULT_EAT_MAX_PERCENT;
     private int currentEatThresholdPercent = DEFAULT_EAT_MAX_PERCENT;
     private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000;
-    // Deprecated: previously used to decide when to enable run manually
     private Tile currentCampTile;
     private long lastWorldHopMillis = 0;
     private long lastDormantSeenTime = System.currentTimeMillis();
     private boolean dormantWarningShown = false;
+    // Camp crash detection (avoid reacting to passersby)
+    private static final long CAMP_CRASH_THRESHOLD_MS = 10_000L;
+    private final java.util.Map<String, Long> campCrashFirstSeen = new java.util.HashMap<>();
 
     // Levelling config/state
     public static final String MODE_WITHIN_RANGE = "Within Range";
@@ -94,7 +96,6 @@ public class SandCrabsScript extends TaskScript {
         readAndValidateLevellingConfiguration();
         rollNextEatThreshold();
         rollNextNoCombatThreshold();
-        // Powbot handles run automatically during web walking
         updateVisibility("Food Name", useFood);
         updateLevellingVisibility();
         // Capture initial style to lock starting skill for Mode: On Limit
@@ -125,8 +126,8 @@ public class SandCrabsScript extends TaskScript {
         new SandCrabsScript().startScript();
     }
 
-    public Tile[] getCampTiles() {
-        return Arrays.copyOf(SPOT_TILES, SPOT_TILES.length);
+    public List<Tile> getCrabTiles() {
+        return SPOT_TILES;
     }
 
     public Area getResetArea() {
@@ -209,8 +210,6 @@ public class SandCrabsScript extends TaskScript {
         return food != null && food.valid();
     }
 
-    // Removed: Powbot auto-enables run during Movement.moveTo via WebWalking defaults
-
     public boolean isDormantCrabNearby() {
         Player local = Players.local();
         if (local == null || !local.valid()) {
@@ -245,6 +244,35 @@ public class SandCrabsScript extends TaskScript {
                 .filtered(player -> !player.equals(local))
                 .first()
                 .valid();
+    }
+
+    /**
+     * Returns true only if a non-local player has been continuously within the
+     * camp radius for at least CAMP_CRASH_THRESHOLD_MS.
+     */
+    public boolean isCampTileCrashed(Tile camp) {
+        if (camp == null) return true;
+        Player local = Players.local();
+        boolean someoneNearby = Players.stream()
+                .within(camp, 2)
+                .filtered(p -> !p.equals(local))
+                .first()
+                .valid();
+
+        String key = String.valueOf(camp);
+        long now = System.currentTimeMillis();
+
+        if (!someoneNearby) {
+            campCrashFirstSeen.remove(key);
+            return false;
+        }
+
+        Long firstSeen = campCrashFirstSeen.get(key);
+        if (firstSeen == null) {
+            campCrashFirstSeen.put(key, now);
+            return false;
+        }
+        return now - firstSeen >= CAMP_CRASH_THRESHOLD_MS;
     }
 
     public List<Tile> eligibleCampTiles() {
@@ -330,7 +358,6 @@ public class SandCrabsScript extends TaskScript {
         if (p == null || !p.valid()) {
             return false;
         }
-        // Heuristics: interacting with an NPC or visible health bar indicates combat
         try {
             return (p.interacting().valid()) || p.healthBarVisible();
         } catch (Exception ignored) {
@@ -438,8 +465,6 @@ public class SandCrabsScript extends TaskScript {
         if (value > MAX_LEVEL) return MAX_LEVEL;
         return value;
     }
-
-    // Removed: no longer needed with Powbot auto-run
 
     @ValueChanged(keyName = "Use Food")
     public void onUseFoodChanged(Boolean enabled) {
