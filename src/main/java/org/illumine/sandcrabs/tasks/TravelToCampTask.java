@@ -10,7 +10,7 @@ import java.util.List;
 
 public class TravelToCampTask extends SandCrabsTask {
 
-    private static final String STATUS = "Travelling to camp";
+    private static final String STATUS = "Travelling to Sand Crabs";
 
     public TravelToCampTask(SandCrabsScript script) {
         super(script);

@@ -1,10 +1,10 @@
 package org.illumine.sandcrabs.tasks;
 
 import org.illumine.sandcrabs.SandCrabsScript;
-import org.powbot.api.rt4.Combat;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
+import org.powbot.api.rt4.Combat;
 import org.powbot.api.rt4.Npc;
 import org.powbot.api.rt4.Npcs;
 import org.powbot.api.rt4.Players;

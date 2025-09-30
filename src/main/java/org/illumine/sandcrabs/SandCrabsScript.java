@@ -7,31 +7,16 @@ import org.powbot.api.Area;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
-import org.powbot.api.rt4.Game;
-import org.powbot.api.rt4.Combat;
-import org.powbot.api.rt4.Inventory;
-import org.powbot.api.rt4.Item;
-// Note: Movement auto-run is handled by Powbot's web walking defaults
-import org.powbot.api.rt4.Npc;
-import org.powbot.api.rt4.Npcs;
-import org.powbot.api.rt4.Player;
-import org.powbot.api.rt4.Players;
-import org.powbot.api.rt4.World;
-import org.powbot.api.rt4.Worlds;
+import org.powbot.api.rt4.*;
 import org.powbot.api.rt4.walking.model.Skill;
-import org.powbot.api.rt4.Skills;
-import org.powbot.api.script.OptionType;
-import org.powbot.api.script.ScriptCategory;
-import org.powbot.api.script.ScriptConfiguration;
-import org.powbot.api.script.ScriptManifest;
-import org.powbot.api.script.ValueChanged;
+import org.powbot.api.script.*;
 import org.powbot.api.script.paint.Paint;
 import org.powbot.api.script.paint.PaintBuilder;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 
 @ScriptConfiguration(name = "Use Food", description = "Enable eating logic", optionType = OptionType.BOOLEAN)
 @ScriptConfiguration(name = "Food Name", description = "Food to consume", optionType = OptionType.STRING, defaultValue = "Lobster", visible = false)
@@ -48,9 +33,12 @@ import java.util.Comparator;
 public class SandCrabsScript extends TaskScript {
 
     public static final Tile[] SPOT_TILES = {
+            new Tile(1790, 3468, 0),
             new Tile(1776, 3468, 0),
             new Tile(1773, 3461, 0),
-            new Tile(1765, 3468, 0)
+            new Tile(1765, 3468, 0),
+            new Tile(1749, 3469, 0),
+            new Tile(1738, 3468, 0)
     };
 
     public static final Area RESET_AREA = new Area(new Tile(1741, 3501, 0), new Tile(1745, 3498, 0));
