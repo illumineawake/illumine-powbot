@@ -32,7 +32,6 @@ public class BankAndStopTask extends SandCrabsTask {
             return;
         }
 
-        script.maybeEnableRun();
         Movement.moveTo(bankTile);
         Condition.wait(() -> {
             Player current = local();
@@ -46,7 +45,6 @@ public class BankAndStopTask extends SandCrabsTask {
 
         // If still not open, step again toward the bank tile and retry
         if (!Bank.opened()) {
-            script.maybeEnableRun();
             Movement.step(bankTile);
             Condition.wait(Bank::inViewport, 150, 20);
             Condition.wait(Bank::open, 100, 30);

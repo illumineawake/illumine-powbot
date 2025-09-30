@@ -14,7 +14,7 @@ import org.powbot.api.Tile;
 import org.powbot.api.rt4.Game;
 import org.powbot.api.rt4.Inventory;
 import org.powbot.api.rt4.Item;
-import org.powbot.api.rt4.Movement;
+// Note: Movement auto-run is handled by Powbot's web walking defaults
 import org.powbot.api.rt4.Npc;
 import org.powbot.api.rt4.Npcs;
 import org.powbot.api.rt4.Player;
@@ -58,8 +58,7 @@ public class SandCrabsScript extends TaskScript {
     private static final int CLAMP_MAX_EAT_PERCENT = 100;
     private static final int MIN_NO_COMBAT_SECONDS = 8;
     private static final int MAX_NO_COMBAT_SECONDS = 12;
-    private static final int MIN_RUN_THRESHOLD = 5;
-    private static final int MAX_RUN_THRESHOLD = 15;
+    // Powbot web walking auto-handles run toggling; no script-side thresholds needed
     private static final long WORLD_HOP_COOLDOWN_MS = 10_000L;
     private static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000L;
 
@@ -78,7 +77,7 @@ public class SandCrabsScript extends TaskScript {
     private int eatMaxPercent = DEFAULT_EAT_MAX_PERCENT;
     private int currentEatThresholdPercent = DEFAULT_EAT_MAX_PERCENT;
     private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000L;
-    private int runEnergyThreshold = MAX_RUN_THRESHOLD;
+    // Deprecated: previously used to decide when to enable run manually
     private Tile currentCampTile;
     private long lastWorldHopMillis = 0L;
     private long lastDormantSeenTime = System.currentTimeMillis();
@@ -89,7 +88,7 @@ public class SandCrabsScript extends TaskScript {
         readAndValidateConfiguration();
         rollNextEatThreshold();
         rollNextNoCombatThreshold();
-        rollNextRunThreshold();
+        // Powbot handles run automatically during web walking
         updateVisibility("Food Name", useFood);
         super.onStart();
         initPaint();
@@ -195,13 +194,7 @@ public class SandCrabsScript extends TaskScript {
         return food != null && food.valid();
     }
 
-    public void maybeEnableRun() {
-        if (!Movement.running() && Movement.energyLevel() >= runEnergyThreshold) {
-            if (Movement.running(true)) {
-                rollNextRunThreshold();
-            }
-        }
-    }
+    // Removed: Powbot auto-enables run during Movement.moveTo via WebWalking defaults
 
     public boolean isDormantCrabNearby() {
         Player local = Players.local();
@@ -408,9 +401,7 @@ public class SandCrabsScript extends TaskScript {
         return fallback;
     }
 
-    private void rollNextRunThreshold() {
-        runEnergyThreshold = Random.nextInt(MIN_RUN_THRESHOLD, MAX_RUN_THRESHOLD + 1);
-    }
+    // Removed: no longer needed with Powbot auto-run
 
     @ValueChanged(keyName = "Use Food")
     public void onUseFoodChanged(Boolean enabled) {

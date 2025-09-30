@@ -43,7 +43,6 @@ public class ResetAggroTask extends SandCrabsTask {
         }
 
         Tile resetTile = script.getResetArea().getRandomTile();
-        script.maybeEnableRun();
         if (resetTile != null) {
             Movement.moveTo(resetTile);
             Condition.wait(() -> {
@@ -56,7 +55,6 @@ public class ResetAggroTask extends SandCrabsTask {
         Condition.sleep(Random.nextInt(600, 901));
 
         // Walk back toward the previous camp, but stop within 7 tiles to reassess occupancy
-        script.maybeEnableRun();
         if (local() != null && local().tile() != null) {
             if (local().tile().distanceTo(camp) > 7) {
                 Movement.moveTo(camp);
@@ -70,7 +68,6 @@ public class ResetAggroTask extends SandCrabsTask {
         // Reassess our last spot; if free, return to it. Otherwise try another free camp.
         boolean lastSpotFree = !script.isCampTileOccupied(camp);
         if (lastSpotFree) {
-            script.maybeEnableRun();
             Movement.moveTo(camp);
             Condition.wait(() -> isOnTile(camp), 200, 30);
         } else {
@@ -86,7 +83,6 @@ public class ResetAggroTask extends SandCrabsTask {
                 int idx = Random.nextInt(0, eligible.size());
                 Tile nextCamp = eligible.get(idx);
                 script.setCurrentCampTile(nextCamp);
-                script.maybeEnableRun();
                 Movement.moveTo(nextCamp);
                 final Tile target = nextCamp;
                 boolean arrived = Condition.wait(() -> isOnTile(target), 200, 25);

@@ -58,7 +58,6 @@ public class TravelToCampTask extends SandCrabsTask {
             return;
         }
 
-        script.maybeEnableRun();
         Movement.moveTo(currentTarget);
         final Tile target = currentTarget;
         boolean arrived = Condition.wait(() -> isOnTile(target), 200, 25);
