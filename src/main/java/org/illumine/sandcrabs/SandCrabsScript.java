@@ -252,6 +252,10 @@ public class SandCrabsScript extends TaskScript {
         List<World> candidates = new ArrayList<>(Worlds.stream()
                 .filtered(World::valid)
                 .filtered(world -> {
+                    World.Type type = world.type();
+                    return type == World.Type.MEMBERS;
+                })
+                .filtered(world -> {
                     World.Specialty specialty = world.specialty();
                     return specialty != World.Specialty.PVP && specialty != World.Specialty.HIGH_RISK;
                 })
