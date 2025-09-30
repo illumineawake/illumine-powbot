@@ -37,9 +37,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 
 @ScriptConfiguration(name = "Use Food", description = "Enable eating logic", optionType = OptionType.BOOLEAN)
-@ScriptConfiguration(name = "Food Name", description = "Food to consume", optionType = OptionType.STRING, visible = false)
-@ScriptConfiguration(name = "Eat Min %", description = "Minimum HP percent for eating threshold", optionType = OptionType.INTEGER)
-@ScriptConfiguration(name = "Eat Max %", description = "Maximum HP percent for eating threshold", optionType = OptionType.INTEGER)
+@ScriptConfiguration(name = "Food Name", description = "Food to consume", optionType = OptionType.STRING, defaultValue = "Lobster", visible = false)
+@ScriptConfiguration(name = "Eat Min %", description = "Minimum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "40")
+@ScriptConfiguration(name = "Eat Max %", description = "Maximum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "75")
 @ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.1.0")
 public class SandCrabsScript extends TaskScript {
 
@@ -52,8 +52,10 @@ public class SandCrabsScript extends TaskScript {
     public static final Area RESET_AREA = new Area(new Tile(1741, 3501, 0), new Tile(1745, 3498, 0));
     public static final Tile SHORE_BANK_TILE = new Tile(1720, 3465, 0);
 
-    private static final int MIN_ALLOWED_EAT_PERCENT = 40;
-    private static final int MAX_ALLOWED_EAT_PERCENT = 60;
+    private static final int DEFAULT_EAT_MIN_PERCENT = 40;
+    private static final int DEFAULT_EAT_MAX_PERCENT = 75;
+    private static final int CLAMP_MIN_EAT_PERCENT = 1;
+    private static final int CLAMP_MAX_EAT_PERCENT = 100;
     private static final int MIN_NO_COMBAT_SECONDS = 8;
     private static final int MAX_NO_COMBAT_SECONDS = 12;
     private static final int MIN_RUN_THRESHOLD = 5;
@@ -72,9 +74,9 @@ public class SandCrabsScript extends TaskScript {
 
     private boolean useFood;
     private String configuredFoodName = "Lobster";
-    private int eatMinPercent = MIN_ALLOWED_EAT_PERCENT;
-    private int eatMaxPercent = MAX_ALLOWED_EAT_PERCENT;
-    private int currentEatThresholdPercent = MAX_ALLOWED_EAT_PERCENT;
+    private int eatMinPercent = DEFAULT_EAT_MIN_PERCENT;
+    private int eatMaxPercent = DEFAULT_EAT_MAX_PERCENT;
+    private int currentEatThresholdPercent = DEFAULT_EAT_MAX_PERCENT;
     private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000L;
     private int runEnergyThreshold = MAX_RUN_THRESHOLD;
     private Tile currentCampTile;
@@ -360,8 +362,8 @@ public class SandCrabsScript extends TaskScript {
 
         Object minValue = getOption("Eat Min %");
         Object maxValue = getOption("Eat Max %");
-        eatMinPercent = clampToBounds(asInt(minValue, MIN_ALLOWED_EAT_PERCENT));
-        eatMaxPercent = clampToBounds(asInt(maxValue, MAX_ALLOWED_EAT_PERCENT));
+        eatMinPercent = clampToBounds(asInt(minValue, DEFAULT_EAT_MIN_PERCENT));
+        eatMaxPercent = clampToBounds(asInt(maxValue, DEFAULT_EAT_MAX_PERCENT));
         if (eatMinPercent > eatMaxPercent) {
             int temp = eatMinPercent;
             eatMinPercent = eatMaxPercent;
@@ -373,6 +375,7 @@ public class SandCrabsScript extends TaskScript {
             String name = foodValue instanceof String ? (String) foodValue : "Lobster";
             name = name == null ? "Lobster" : name.trim();
             if (name.isEmpty()) {
+                // Pre-populate default if the field is blank
                 name = "Lobster";
             }
             configuredFoodName = name;
@@ -382,11 +385,11 @@ public class SandCrabsScript extends TaskScript {
     }
 
     private int clampToBounds(int value) {
-        if (value < MIN_ALLOWED_EAT_PERCENT) {
-            return MIN_ALLOWED_EAT_PERCENT;
+        if (value < CLAMP_MIN_EAT_PERCENT) {
+            return CLAMP_MIN_EAT_PERCENT;
         }
-        if (value > MAX_ALLOWED_EAT_PERCENT) {
-            return MAX_ALLOWED_EAT_PERCENT;
+        if (value > CLAMP_MAX_EAT_PERCENT) {
+            return CLAMP_MAX_EAT_PERCENT;
         }
         return value;
     }
