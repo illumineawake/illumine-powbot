@@ -13,12 +13,12 @@ Features
 Levelling Modes
 - Within Range: keep Attack/Strength/Defence within X levels of each other; trains the lowest until within range; skips capped skills.
 - On Limit: stay on starting skill until its cap, then switch by priority Attack > Strength > Defence.
+- Optimal: follow a predefined progression of target levels across Attack/Strength/Defence (ignores Ranged/Magic for now), advancing through milestones while respecting your configured caps.
 
 Options
 - Use Food, Food Name
 - Eat Min %, Eat Max %
 - Configure Levelling
-- Levelling Mode (Within Range | On Limit)
+- Levelling Mode (Within Range | On Limit | Optimal)
 - Max Attack, Max Strength, Max Defence
 - Keep Within Levels
-

@@ -97,6 +97,9 @@ public class ManageLevellingTask extends SandCrabsTask {
             }
             return sortByPriority(eligible);
         }
+        if (SandCrabsScript.MODE_OPTIMAL.equals(mode)) {
+            return new ArrayList<>(script.computeOptimalCandidates());
+        }
 
         // MODE_WITHIN_RANGE
         int max = Integer.MIN_VALUE;

@@ -14,7 +14,6 @@ import org.powbot.api.script.paint.Paint;
 import org.powbot.api.script.paint.PaintBuilder;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
@@ -24,7 +23,7 @@ import java.util.List;
 @ScriptConfiguration(name = "Eat Max %", description = "Maximum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "75")
 // Levelling controls
 @ScriptConfiguration(name = "Configure Levelling", description = "Enable skill levelling goals and switching", optionType = OptionType.BOOLEAN, defaultValue = "false")
-@ScriptConfiguration(name = "Levelling Mode", description = "Select levelling mode", optionType = OptionType.STRING, defaultValue = "On Limit", allowedValues = {"Within Range", "On Limit"}, visible = false)
+@ScriptConfiguration(name = "Levelling Mode", description = "Select levelling mode", optionType = OptionType.STRING, defaultValue = "On Limit", allowedValues = {"Within Range", "On Limit", "Optimal"}, visible = false)
 @ScriptConfiguration(name = "Max Attack", description = "Max Attack level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Max Strength", description = "Max Strength level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Max Defence", description = "Max Defence level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
@@ -32,7 +31,7 @@ import java.util.List;
 @ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
 
-    public static final List<Tile> SPOT_TILES = java.util.List.of(
+    public static final List<Tile> HOSIDIUS_SPOT_TILES = java.util.List.of(
             new Tile(1790, 3468, 0),
             new Tile(1776, 3468, 0),
             new Tile(1773, 3461, 0),
@@ -52,8 +51,8 @@ public class SandCrabsScript extends TaskScript {
     private static final int MAX_LEVEL = 99;
     private static final int MIN_NO_COMBAT_SECONDS = 8;
     private static final int MAX_NO_COMBAT_SECONDS = 12;
-    private static final long WORLD_HOP_COOLDOWN_MS = 10_000L;
-    private static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000L;
+    private static final long WORLD_HOP_COOLDOWN_MS = 10000;
+    private static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000;
 
     private static final Skill[] TRACKED_COMBAT_SKILLS = new Skill[]{
             Skill.Attack,
@@ -81,6 +80,7 @@ public class SandCrabsScript extends TaskScript {
     // Levelling config/state
     public static final String MODE_WITHIN_RANGE = "Within Range";
     public static final String MODE_ON_LIMIT = "On Limit";
+    public static final String MODE_OPTIMAL = "Optimal";
     private boolean levellingEnabled = false;
     private String levellingMode = MODE_ON_LIMIT;
     private int maxAttack = MAX_LEVEL;
@@ -89,6 +89,46 @@ public class SandCrabsScript extends TaskScript {
     private int keepWithin = 5;
     private Skill initialLockedSkill = null; // Applies in Mode: On Limit only
     private Skill currentTrainingSkill = null; // For overlay display
+
+    // Optimal levelling targets (A, S, D, R, M) — Ranged/Magic are ignored for now
+    private static final class SkillTarget {
+        final int attack;
+        final int strength;
+        final int defence;
+        final int ranged;
+        final int magic;
+
+        SkillTarget(int attack, int strength, int defence, int ranged, int magic) {
+            this.attack = attack;
+            this.strength = strength;
+            this.defence = defence;
+            this.ranged = ranged;
+            this.magic = magic;
+        }
+
+        int forSkill(Skill s) {
+            if (s == Skill.Attack) return attack;
+            if (s == Skill.Strength) return strength;
+            if (s == Skill.Defence) return defence;
+            return 0;
+        }
+    }
+
+    private static final java.util.List<SkillTarget> OPTIMAL_TARGETS = java.util.List.of(
+            new SkillTarget(10, 10, 10, 1, 1),
+            new SkillTarget(30, 30, 30, 40, 35),
+            new SkillTarget(30, 35, 30, 40, 35),
+            new SkillTarget(40, 35, 30, 40, 35),
+            new SkillTarget(40, 54, 30, 40, 35),
+            new SkillTarget(50, 58, 30, 40, 35),
+            new SkillTarget(60, 58, 60, 40, 35),
+            new SkillTarget(60, 60, 60, 60, 59),
+            new SkillTarget(60, 70, 60, 60, 59),
+            new SkillTarget(70, 70, 70, 70, 70),
+            new SkillTarget(70, 99, 70, 70, 70),
+            new SkillTarget(99, 99, 70, 80, 80),
+            new SkillTarget(99, 99, 99, 99, 99)
+    );
 
     @Override
     public void onStart() {
@@ -127,7 +167,7 @@ public class SandCrabsScript extends TaskScript {
     }
 
     public List<Tile> getCrabTiles() {
-        return SPOT_TILES;
+        return HOSIDIUS_SPOT_TILES;
     }
 
     public Area getResetArea() {
@@ -240,7 +280,7 @@ public class SandCrabsScript extends TaskScript {
             return true;
         }
         return Players.stream()
-                .within(camp, 2)
+                .within(camp, 3)
                 .filtered(player -> !player.equals(local))
                 .first()
                 .valid();
@@ -254,7 +294,7 @@ public class SandCrabsScript extends TaskScript {
         if (camp == null) return true;
         Player local = Players.local();
         boolean someoneNearby = Players.stream()
-                .within(camp, 2)
+                .within(camp, 3)
                 .filtered(p -> !p.equals(local))
                 .first()
                 .valid();
@@ -277,7 +317,7 @@ public class SandCrabsScript extends TaskScript {
 
     public List<Tile> eligibleCampTiles() {
         List<Tile> eligible = new ArrayList<>();
-        for (Tile camp : SPOT_TILES) {
+        for (Tile camp : HOSIDIUS_SPOT_TILES) {
             if (!isCampTileOccupied(camp)) {
                 eligible.add(camp);
             }
@@ -378,7 +418,7 @@ public class SandCrabsScript extends TaskScript {
     }
 
     private void initPaint() {
-        Paint paint = PaintBuilder.newBuilder()
+        PaintBuilder builder = PaintBuilder.newBuilder()
                 .x(15)
                 .y(40)
                 .trackSkill(Skill.Attack)
@@ -388,9 +428,20 @@ public class SandCrabsScript extends TaskScript {
                 .trackSkill(Skill.Magic)
                 .trackSkill(Skill.Hitpoints)
                 .addString("Status", this::getCurrentStatus)
-                .addString("Training", this::getTrainingStatus)
-                .build();
+                .addString("Training", this::getTrainingStatus);
+        if (MODE_OPTIMAL.equals(levellingMode)) {
+            builder = builder.addString("Optimal Target", this::getOptimalTargetStatus);
+        }
+        Paint paint = builder.build();
         addPaint(paint);
+    }
+
+    private void refreshPaint() {
+        try {
+            clearPaints();
+        } catch (Exception ignored) {
+        }
+        initPaint();
     }
 
     private void readAndValidateConfiguration() {
@@ -424,11 +475,19 @@ public class SandCrabsScript extends TaskScript {
         levellingEnabled = Boolean.TRUE.equals(getOption("Configure Levelling"));
         Object modeVal = getOption("Levelling Mode");
         String mode = (modeVal instanceof String) ? ((String) modeVal).trim() : MODE_ON_LIMIT;
-        if (!MODE_WITHIN_RANGE.equalsIgnoreCase(mode) && !MODE_ON_LIMIT.equalsIgnoreCase(mode)) {
+        if (!MODE_WITHIN_RANGE.equalsIgnoreCase(mode)
+                && !MODE_ON_LIMIT.equalsIgnoreCase(mode)
+                && !MODE_OPTIMAL.equalsIgnoreCase(mode)) {
             mode = MODE_ON_LIMIT;
         }
         // Normalize to canonical labels
-        levellingMode = MODE_WITHIN_RANGE.equalsIgnoreCase(mode) ? MODE_WITHIN_RANGE : MODE_ON_LIMIT;
+        if (MODE_WITHIN_RANGE.equalsIgnoreCase(mode)) {
+            levellingMode = MODE_WITHIN_RANGE;
+        } else if (MODE_OPTIMAL.equalsIgnoreCase(mode)) {
+            levellingMode = MODE_OPTIMAL;
+        } else {
+            levellingMode = MODE_ON_LIMIT;
+        }
 
         maxAttack = clampLevel(asInt(getOption("Max Attack"), MAX_LEVEL));
         maxStrength = clampLevel(asInt(getOption("Max Strength"), MAX_LEVEL));
@@ -481,8 +540,15 @@ public class SandCrabsScript extends TaskScript {
     public void onLevellingModeChanged(String newMode) {
         // Normalize and update visibility
         String mode = newMode == null ? MODE_ON_LIMIT : newMode.trim();
-        levellingMode = MODE_WITHIN_RANGE.equalsIgnoreCase(mode) ? MODE_WITHIN_RANGE : MODE_ON_LIMIT;
+        if (MODE_WITHIN_RANGE.equalsIgnoreCase(mode)) {
+            levellingMode = MODE_WITHIN_RANGE;
+        } else if (MODE_OPTIMAL.equalsIgnoreCase(mode)) {
+            levellingMode = MODE_OPTIMAL;
+        } else {
+            levellingMode = MODE_ON_LIMIT;
+        }
         updateLevellingVisibility();
+        refreshPaint();
     }
 
     private void updateLevellingVisibility() {
@@ -549,6 +615,13 @@ public class SandCrabsScript extends TaskScript {
         return "Training " + name + " to " + targetLevel;
     }
 
+    public String getOptimalTargetStatus() {
+        if (!levellingEnabled || !MODE_OPTIMAL.equals(levellingMode)) return "";
+        SkillTarget t = currentOptimalTarget();
+        if (t == null) return "Milestones complete";
+        return "A/S/D: " + t.attack + "/" + t.strength + "/" + t.defence;
+    }
+
     public Combat.Style styleFor(Skill skill) {
         if (skill == Skill.Attack) return Combat.Style.ACCURATE;
         if (skill == Skill.Strength) return Combat.Style.AGGRESSIVE;
@@ -571,6 +644,12 @@ public class SandCrabsScript extends TaskScript {
         if (allGoalsReached()) return realLevel(skill);
         if (MODE_ON_LIMIT.equals(levellingMode)) {
             return getMaxFor(skill);
+        }
+        if (MODE_OPTIMAL.equals(levellingMode)) {
+            SkillTarget t = currentOptimalTarget();
+            if (t == null) return getMaxFor(skill);
+            int cap = getMaxFor(skill);
+            return Math.min(cap, t.forSkill(skill));
         }
 
         // MODE_WITHIN_RANGE
@@ -617,4 +696,50 @@ public class SandCrabsScript extends TaskScript {
         }
         return max;
     }
+
+    // ---------- Optimal mode helpers ----------
+
+    private SkillTarget currentOptimalTarget() {
+        for (SkillTarget t : OPTIMAL_TARGETS) {
+            int a = Math.min(t.attack, getMaxFor(Skill.Attack));
+            int st = Math.min(t.strength, getMaxFor(Skill.Strength));
+            int d = Math.min(t.defence, getMaxFor(Skill.Defence));
+            boolean met = realLevel(Skill.Attack) >= a
+                    && realLevel(Skill.Strength) >= st
+                    && realLevel(Skill.Defence) >= d;
+            if (!met) {
+                return new SkillTarget(a, st, d, t.ranged, t.magic);
+            }
+        }
+        return null; // All optimal targets satisfied within caps
+    }
+
+    public java.util.List<Skill> computeOptimalCandidates() {
+        ArrayList<Skill> result = new ArrayList<>();
+        SkillTarget t = currentOptimalTarget();
+        if (t != null) {
+            for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
+                if (reachedLimit(s)) continue;
+                int target = t.forSkill(s);
+                if (realLevel(s) < target) {
+                    result.add(s);
+                    break; // first unmet in A>S>D within current milestone
+                }
+            }
+        }
+        if (!result.isEmpty()) return result;
+        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
+            if (!reachedLimit(s)) result.add(s);
+        }
+        return result;
+    }
+
+    private int priorityIndex(Skill s) {
+        if (s == Skill.Attack) return 0;
+        if (s == Skill.Strength) return 1;
+        if (s == Skill.Defence) return 2;
+        return 3;
+    }
+
+    // Milestone-first behavior is implemented via currentOptimalTarget() and candidate selection above
 }
