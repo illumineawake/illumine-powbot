@@ -32,7 +32,8 @@ public class TravelToCampTask extends SandCrabsTask {
             return true;
         }
 
-        if (script.isCampTileOccupied(currentTarget)) {
+        // Consider a camp "crashed" only if another player remains ~10s
+        if (script.isCampTileCrashed(currentTarget)) {
             return true;
         }
 
@@ -49,8 +50,22 @@ public class TravelToCampTask extends SandCrabsTask {
 
         Tile currentTarget = script.getCurrentCampTile();
         if (currentTarget == null || !eligible.contains(currentTarget)) {
-            int index = Random.nextInt(0, eligible.size());
-            currentTarget = eligible.get(index);
+            // Prefer the nearest eligible camp to the local player instead of a random one
+            Tile me = localTile();
+            Tile nearest = null;
+            double best = Double.MAX_VALUE;
+            for (Tile t : eligible) {
+                double d = (me == null) ? Double.MAX_VALUE : me.distanceTo(t);
+                if (d < best) {
+                    best = d;
+                    nearest = t;
+                }
+            }
+            if (nearest == null) {
+                int index = Random.nextInt(0, eligible.size());
+                nearest = eligible.get(index);
+            }
+            currentTarget = nearest;
             script.setCurrentCampTile(currentTarget);
         }
 

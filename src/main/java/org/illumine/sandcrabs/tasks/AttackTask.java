@@ -42,9 +42,12 @@ public class AttackTask extends SandCrabsTask {
 
             if (noExpMs >= threshold) {
                 Npc target = Npcs.stream()
-                        .name( "Sand Crab")
+                        .name("Sand Crab")
                         .within(camp, 7)
-                        .filtered(n -> n.valid() && !n.interacting().valid())
+                        .filtered(n -> n.valid()
+                                && !n.interacting().valid()
+                                && n.actions() != null
+                                && n.actions().contains("Attack"))
                         .nearest()
                         .first();
 

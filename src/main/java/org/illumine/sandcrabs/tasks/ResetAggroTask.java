@@ -51,8 +51,8 @@ public class ResetAggroTask extends SandCrabsTask {
             }, 200, 25);
         }
 
-        // Brief pause before returning toward camp
-        Condition.sleep(Random.nextInt(600, 901));
+        // Random pause before returning toward camp
+        Condition.sleep(Random.nextInt(600, 1000));
 
         // Walk back toward the previous camp, but stop within 7 tiles to reassess occupancy
         if (local() != null && local().tile() != null) {
