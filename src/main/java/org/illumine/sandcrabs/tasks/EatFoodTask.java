@@ -31,9 +31,7 @@ public class EatFoodTask extends SandCrabsTask {
     @Override
     public void run() {
         int before = Combat.healthPercent();
-        Item food = Inventory.stream()
-                .filtered(item -> item != null && item.valid() && context.isConfiguredFood(item.name()))
-                .first();
+        Item food = context.getFood();
 
         if (!food.valid()) {
             return;

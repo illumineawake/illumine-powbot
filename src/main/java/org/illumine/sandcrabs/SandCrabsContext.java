@@ -1,6 +1,7 @@
 package org.illumine.sandcrabs;
 
 import org.powbot.api.rt4.Inventory;
+import org.powbot.api.rt4.Item;
 
 /**
  * Aggregates the Sand Crabs config, mutable state, and manager classes so that
@@ -66,12 +67,13 @@ public class SandCrabsContext {
         return Inventory.stream().name(foodName).first().valid();
     }
 
-    public boolean isConfiguredFood(String itemName) {
+    public Item getFood() {
         SandCrabsConfig cfg = config;
-        return cfg.isUseFood()
-                && itemName != null
-                && !cfg.getFoodName().isEmpty()
-                && itemName.equalsIgnoreCase(cfg.getFoodName());
+        if (!config.isUseFood() || cfg.getFoodName().isEmpty()) {
+            return null;
+        }
+
+        return Inventory.stream().name(cfg.getFoodName()).first();
     }
 }
 
