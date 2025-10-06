@@ -243,23 +243,20 @@ public class SandCrabsScript extends TaskScript {
         if (!useFood || configuredFoodName.isEmpty()) {
             return false;
         }
-        Item food = Inventory.stream()
-                .filtered(item -> item != null && item.valid() && item.name() != null
-                        && item.name().equalsIgnoreCase(configuredFoodName))
-                .first();
-        return food != null && food.valid();
+        return Inventory.stream().name(configuredFoodName)
+                .first().valid();
     }
 
     public boolean isDormantCrabNearby() {
         Player local = Players.local();
-        if (local == null || !local.valid()) {
+        if (!local.valid()) {
             return false;
         }
         Npc dormant = Npcs.stream()
                 .name("Sandy rocks")
                 .within(local, 2)
                 .first();
-        if (dormant != null && dormant.valid()) {
+        if (dormant.valid()) {
             lastDormantSeenTime = System.currentTimeMillis();
             return true;
         }
@@ -407,14 +404,6 @@ public class SandCrabsScript extends TaskScript {
 
     public boolean canAttemptWorldHop() {
         return System.currentTimeMillis() - lastWorldHopMillis >= WORLD_HOP_COOLDOWN_MS;
-    }
-
-    public long getWorldHopCooldownMillis() {
-        return WORLD_HOP_COOLDOWN_MS;
-    }
-
-    public long getLastWorldHopMillis() {
-        return lastWorldHopMillis;
     }
 
     private void initPaint() {
@@ -686,17 +675,6 @@ public class SandCrabsScript extends TaskScript {
         return Math.min(ownLimit, highestOther);
     }
 
-    private int highestEligibleLevel() {
-        int max = 0;
-        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
-            if (!reachedLimit(s)) {
-                int lv = realLevel(s);
-                if (lv > max) max = lv;
-            }
-        }
-        return max;
-    }
-
     // ---------- Optimal mode helpers ----------
 
     private SkillTarget currentOptimalTarget() {
@@ -733,13 +711,4 @@ public class SandCrabsScript extends TaskScript {
         }
         return result;
     }
-
-    private int priorityIndex(Skill s) {
-        if (s == Skill.Attack) return 0;
-        if (s == Skill.Strength) return 1;
-        if (s == Skill.Defence) return 2;
-        return 3;
-    }
-
-    // Milestone-first behavior is implemented via currentOptimalTarget() and candidate selection above
 }
