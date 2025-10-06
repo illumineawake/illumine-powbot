@@ -1,6 +1,6 @@
 SandCrabs by illumine
 
-Kills Sand Crabs in Hosidius with additional features.
+Kills Sand Crabs in south Hosidius with additional features.
 
 Features
 - Selects free crab spots and world‑hops if none are free
