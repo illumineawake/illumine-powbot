@@ -59,7 +59,7 @@ public class ResetAggroTask extends SandCrabsTask {
                 Movement.moveTo(spot);
                 Condition.wait(() -> {
                     Player p = Players.local();
-                    return p != null && p.tile() != null && p.tile().distanceTo(spot) <= 7;
+                    return p.tile().distanceTo(spot) <= 7;
                 }, 200, 30);
             }
 

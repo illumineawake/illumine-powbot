@@ -35,7 +35,7 @@ public class EatFoodTask extends SandCrabsTask {
                 .filtered(item -> item != null && item.valid() && context.isConfiguredFood(item.name()))
                 .first();
 
-        if (food == null || !food.valid()) {
+        if (!food.valid()) {
             return;
         }
 
