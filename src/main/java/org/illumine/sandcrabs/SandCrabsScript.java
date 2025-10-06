@@ -1,37 +1,42 @@
 package org.illumine.sandcrabs;
 
-import org.illumine.sandcrabs.tasks.*;
+import org.illumine.sandcrabs.tasks.AttackTask;
+import org.illumine.sandcrabs.tasks.BankAndStopTask;
+import org.illumine.sandcrabs.tasks.EatFoodTask;
+import org.illumine.sandcrabs.tasks.ManageLevellingTask;
+import org.illumine.sandcrabs.tasks.ResetAggroTask;
+import org.illumine.sandcrabs.tasks.SandCrabsTask;
+import org.illumine.sandcrabs.tasks.TravelToSpotTask;
 import org.illumine.taskscript.Task;
 import org.illumine.taskscript.TaskScript;
 import org.powbot.api.Area;
-import org.powbot.api.Condition;
-import org.powbot.api.Random;
 import org.powbot.api.Tile;
-import org.powbot.api.rt4.*;
-import org.powbot.api.rt4.walking.model.Skill;
-import org.powbot.api.script.*;
+import org.powbot.api.rt4.Combat;
+import org.powbot.api.script.OptionType;
+import org.powbot.api.script.ScriptCategory;
+import org.powbot.api.script.ScriptConfiguration;
+import org.powbot.api.script.ScriptManifest;
+import org.powbot.api.script.ValueChanged;
 import org.powbot.api.script.paint.Paint;
 import org.powbot.api.script.paint.PaintBuilder;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
-@ScriptConfiguration(name = "Use Food", description = "Enable eating logic", optionType = OptionType.BOOLEAN)
+@ScriptConfiguration(name = "Use Food", description = "Enable eating", optionType = OptionType.BOOLEAN)
 @ScriptConfiguration(name = "Food Name", description = "Food to consume", optionType = OptionType.STRING, defaultValue = "Lobster", visible = false)
 @ScriptConfiguration(name = "Eat Min %", description = "Minimum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "40")
 @ScriptConfiguration(name = "Eat Max %", description = "Maximum HP percent for eating threshold", optionType = OptionType.INTEGER, defaultValue = "75")
 // Levelling controls
-@ScriptConfiguration(name = "Configure Levelling", description = "Enable skill levelling goals and switching", optionType = OptionType.BOOLEAN, defaultValue = "false")
-@ScriptConfiguration(name = "Levelling Mode", description = "Select levelling mode", optionType = OptionType.STRING, defaultValue = "On Limit", allowedValues = {"Within Range", "On Limit", "Optimal"}, visible = false)
+@ScriptConfiguration(name = "Configure Levelling", description = "Enable skill levelling goals and switching (Melee only)", optionType = OptionType.BOOLEAN, defaultValue = "false")
+@ScriptConfiguration(name = "Levelling Mode", description = "Switch combat skill to train when criteria is met - remains obedient to configured limits", optionType = OptionType.STRING, defaultValue = "When Limit Reached", allowedValues = {"Keep Within Range", "When Limit Reached", "Optimal"}, visible = false)
 @ScriptConfiguration(name = "Max Attack", description = "Max Attack level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Max Strength", description = "Max Strength level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Max Defence", description = "Max Defence level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
-@ScriptConfiguration(name = "Keep Within Levels", description = "Keep skills within X levels of each other", optionType = OptionType.INTEGER, defaultValue = "5", visible = false)
-@ScriptManifest(name = "Sand Crabs Task", description = "Task-based Sand Crabs script", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
+@ScriptConfiguration(name = "Keep Within Levels", description = "Keep combat skills within X levels of each other", optionType = OptionType.INTEGER, defaultValue = "5", visible = false)
+@ScriptManifest(name = "illu Sand Crabs", description = "Kills Sand Crabs at Southern Hosidious beach, with bank restocking and combat style switching", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
 
-    public static final List<Tile> HOSIDIUS_SPOT_TILES = java.util.List.of(
+    public static final List<Tile> HOSIDIUS_SPOT_TILES = List.of(
             new Tile(1790, 3468, 0),
             new Tile(1776, 3468, 0),
             new Tile(1773, 3461, 0),
@@ -43,108 +48,50 @@ public class SandCrabsScript extends TaskScript {
     public static final Area RESET_AREA = new Area(new Tile(1741, 3501, 0), new Tile(1745, 3498, 0));
     public static final Tile SHORE_BANK_TILE = new Tile(1720, 3465, 0);
 
-    private static final int DEFAULT_EAT_MIN_PERCENT = 40;
-    private static final int DEFAULT_EAT_MAX_PERCENT = 75;
-    private static final int CLAMP_MIN_EAT_PERCENT = 1;
-    private static final int CLAMP_MAX_EAT_PERCENT = 100;
-    private static final int MIN_LEVEL = 1;
-    private static final int MAX_LEVEL = 99;
-    private static final int MIN_NO_COMBAT_SECONDS = 8;
-    private static final int MAX_NO_COMBAT_SECONDS = 12;
-    private static final long WORLD_HOP_COOLDOWN_MS = 10000;
-    private static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000;
+    public static final int DEFAULT_EAT_MIN_PERCENT = 40;
+    public static final int DEFAULT_EAT_MAX_PERCENT = 75;
+    public static final int CLAMP_MIN_EAT_PERCENT = 1;
+    public static final int CLAMP_MAX_EAT_PERCENT = 100;
+    public static final int MIN_LEVEL = 1;
+    public static final int MAX_LEVEL = 99;
+    public static final int MIN_NO_COMBAT_SECONDS = 8;
+    public static final int MAX_NO_COMBAT_SECONDS = 12;
+    public static final long WORLD_HOP_COOLDOWN_MS = 10000;
+    public static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000;
+    public static final long SPOT_CRASH_THRESHOLD_MS = 10000;
 
-    private static final Skill[] TRACKED_COMBAT_SKILLS = new Skill[]{
-            Skill.Attack,
-            Skill.Strength,
-            Skill.Defence,
-            Skill.Ranged,
-            Skill.Magic,
-            Skill.Hitpoints
-    };
-
-    private boolean useFood;
-    private String configuredFoodName = "Lobster";
-    private int eatMinPercent = DEFAULT_EAT_MIN_PERCENT;
-    private int eatMaxPercent = DEFAULT_EAT_MAX_PERCENT;
-    private int currentEatThresholdPercent = DEFAULT_EAT_MAX_PERCENT;
-    private long currentNoCombatThresholdMillis = MIN_NO_COMBAT_SECONDS * 1000;
-    private Tile currentCampTile;
-    private long lastWorldHopMillis = 0;
-    private long lastDormantSeenTime = System.currentTimeMillis();
-    private boolean dormantWarningShown = false;
-    // Camp crash detection (avoid reacting to passersby)
-    private static final long CAMP_CRASH_THRESHOLD_MS = 10_000L;
-    private final java.util.Map<String, Long> campCrashFirstSeen = new java.util.HashMap<>();
-
-    // Levelling config/state
-    public static final String MODE_WITHIN_RANGE = "Within Range";
-    public static final String MODE_ON_LIMIT = "On Limit";
+    public static final String MODE_WITHIN_RANGE = "Keep Within Range";
+    public static final String MODE_ON_LIMIT = "When Limit Reached";
     public static final String MODE_OPTIMAL = "Optimal";
-    private boolean levellingEnabled = false;
-    private String levellingMode = MODE_ON_LIMIT;
-    private int maxAttack = MAX_LEVEL;
-    private int maxStrength = MAX_LEVEL;
-    private int maxDefence = MAX_LEVEL;
-    private int keepWithin = 5;
-    private Skill initialLockedSkill = null; // Applies in Mode: On Limit only
-    private Skill currentTrainingSkill = null; // For overlay display
 
-    // Optimal levelling targets (A, S, D, R, M) — Ranged/Magic are ignored for now
-    private static final class SkillTarget {
-        final int attack;
-        final int strength;
-        final int defence;
-        final int ranged;
-        final int magic;
-
-        SkillTarget(int attack, int strength, int defence, int ranged, int magic) {
-            this.attack = attack;
-            this.strength = strength;
-            this.defence = defence;
-            this.ranged = ranged;
-            this.magic = magic;
-        }
-
-        int forSkill(Skill s) {
-            if (s == Skill.Attack) return attack;
-            if (s == Skill.Strength) return strength;
-            if (s == Skill.Defence) return defence;
-            return 0;
-        }
-    }
-
-    private static final java.util.List<SkillTarget> OPTIMAL_TARGETS = java.util.List.of(
-            new SkillTarget(10, 10, 10, 1, 1),
-            new SkillTarget(30, 30, 30, 40, 35),
-            new SkillTarget(30, 35, 30, 40, 35),
-            new SkillTarget(40, 35, 30, 40, 35),
-            new SkillTarget(40, 54, 30, 40, 35),
-            new SkillTarget(50, 58, 30, 40, 35),
-            new SkillTarget(60, 58, 60, 40, 35),
-            new SkillTarget(60, 60, 60, 60, 59),
-            new SkillTarget(60, 70, 60, 60, 59),
-            new SkillTarget(70, 70, 70, 70, 70),
-            new SkillTarget(70, 99, 70, 70, 70),
-            new SkillTarget(99, 99, 70, 80, 80),
-            new SkillTarget(99, 99, 99, 99, 99)
-    );
+    private SandCrabsConfig config;
+    private SandCrabsState state;
+    private CombatMonitor combatMonitor;
+    private SpotManager spotManager;
+    private LevellingService levellingService;
+    private SandCrabsContext context;
 
     @Override
     public void onStart() {
-        readAndValidateConfiguration();
-        readAndValidateLevellingConfiguration();
-        rollNextEatThreshold();
-        rollNextNoCombatThreshold();
-        updateVisibility("Food Name", useFood);
+        config = loadConfiguration();
+        state = new SandCrabsState(config.getEatMaxPercent(), config.getMinNoCombatSeconds() * 1000L, System.currentTimeMillis());
+        combatMonitor = new CombatMonitor(getLog(), config, state);
+        spotManager = new SpotManager(getLog(), config, state, combatMonitor);
+        levellingService = new LevellingService(config, state);
+        context = new SandCrabsContext(config, state, combatMonitor, spotManager, levellingService);
+
+        combatMonitor.rollNextEatThreshold();
+        combatMonitor.rollNextNoCombatThreshold();
+        updateVisibility("Food Name", config.isUseFood());
         updateLevellingVisibility();
-        // Capture initial style to lock starting skill for Mode: On Limit
+
         try {
             Combat.Style style = Combat.style();
-            initialLockedSkill = mapStyleToSkill(style);
+            levellingService.setInitialLockedSkill(levellingService.mapStyleToSkill(style));
         } catch (Exception ignored) {
-            initialLockedSkill = null;
+            levellingService.setInitialLockedSkill(null);
         }
+
         super.onStart();
         initPaint();
     }
@@ -152,280 +99,46 @@ public class SandCrabsScript extends TaskScript {
     @Override
     protected List<Task> createTasks() {
         return addAll(
-                new BankAndStopTask(this),
-                new EatFoodTask(this),
-                new ResetAggroTask(this),
-                new ManageLevellingTask(this),
-                new TravelToCampTask(this),
-                new AttackTask(this)
+                new BankAndStopTask(this, context),
+                new EatFoodTask(this, context),
+                new ResetAggroTask(this, context),
+                new ManageLevellingTask(this, context),
+                new TravelToSpotTask(this, context),
+                new AttackTask(this, context)
         );
     }
 
     public static void main(String[] args) {
-        // Ensure exactly one device is connected via ADB
         new SandCrabsScript().startScript();
     }
 
-    public List<Tile> getCrabTiles() {
-        return HOSIDIUS_SPOT_TILES;
-    }
-
-    public Area getResetArea() {
-        return RESET_AREA;
-    }
-
-    public Tile getShoreBankTile() {
-        return SHORE_BANK_TILE;
-    }
-
-    public boolean isUseFoodEnabled() {
-        return useFood;
-    }
-
-    public String getConfiguredFoodName() {
-        return configuredFoodName;
-    }
-
-    public boolean isConfiguredFood(String itemName) {
-        return useFood && !configuredFoodName.isEmpty() && itemName != null
-                && itemName.equalsIgnoreCase(configuredFoodName);
-    }
-
-    public int getEatMinPercent() {
-        return eatMinPercent;
-    }
-
-    public int getEatMaxPercent() {
-        return eatMaxPercent;
-    }
-
-    public int getCurrentEatThresholdPercent() {
-        return currentEatThresholdPercent;
-    }
-
-    public Tile getCurrentCampTile() {
-        return currentCampTile;
-    }
-
-    public void setCurrentCampTile(Tile currentCampTile) {
-        this.currentCampTile = currentCampTile;
-    }
-
-    public void resetCampSelection() {
-        this.currentCampTile = null;
-    }
-
-    public void rollNextEatThreshold() {
-        currentEatThresholdPercent = Random.nextInt(eatMinPercent, eatMaxPercent + 1);
-    }
-
-    public long getCurrentNoCombatThresholdMillis() {
-        return currentNoCombatThresholdMillis;
-    }
-
-    public void rollNextNoCombatThreshold() {
-        int seconds = Random.nextInt(MIN_NO_COMBAT_SECONDS, MAX_NO_COMBAT_SECONDS + 1);
-        currentNoCombatThresholdMillis = seconds * 1000L;
-    }
-
-    public long minTrackedSkillExpDelta() {
-        long min = Long.MAX_VALUE;
-        for (Skill skill : TRACKED_COMBAT_SKILLS) {
-            long delta = Skills.timeSinceExpGained(skill);
-            if (delta < min) {
-                min = delta;
-            }
-        }
-        return min == Long.MAX_VALUE ? 0L : min;
-    }
-
-    public boolean hasRequiredFoodInInventory() {
-        if (!useFood || configuredFoodName.isEmpty()) {
-            return false;
-        }
-        return Inventory.stream().name(configuredFoodName)
-                .first().valid();
-    }
-
-    public boolean isDormantCrabNearby() {
-        Player local = Players.local();
-        if (!local.valid()) {
-            return false;
-        }
-        Npc dormant = Npcs.stream()
-                .name("Sandy rocks")
-                .within(local, 2)
-                .first();
-        if (dormant.valid()) {
-            lastDormantSeenTime = System.currentTimeMillis();
-            return true;
-        }
-
-        long sinceSeen = System.currentTimeMillis() - lastDormantSeenTime;
-        if (!dormantWarningShown && sinceSeen >= DORMANT_WARNING_DELAY_MS) {
-            dormantWarningShown = true;
-            if (getLog() != null) {
-                getLog().warning("No 'Sandy rocks' NPCs detected nearby for an extended period. Check naming or aggro state.");
-            }
-        }
-        return false;
-    }
-
-    public boolean isCampTileOccupied(Tile camp) {
-        Player local = Players.local();
-        if (camp == null) {
-            return true;
-        }
-        return Players.stream()
-                .within(camp, 3)
-                .filtered(player -> !player.equals(local))
-                .first()
-                .valid();
-    }
-
-    /**
-     * Returns true only if a non-local player has been continuously within the
-     * camp radius for at least CAMP_CRASH_THRESHOLD_MS.
-     */
-    public boolean isCampTileCrashed(Tile camp) {
-        if (camp == null) return true;
-        Player local = Players.local();
-        boolean someoneNearby = Players.stream()
-                .within(camp, 3)
-                .filtered(p -> !p.equals(local))
-                .first()
-                .valid();
-
-        String key = String.valueOf(camp);
-        long now = System.currentTimeMillis();
-
-        if (!someoneNearby) {
-            campCrashFirstSeen.remove(key);
-            return false;
-        }
-
-        Long firstSeen = campCrashFirstSeen.get(key);
-        if (firstSeen == null) {
-            campCrashFirstSeen.put(key, now);
-            return false;
-        }
-        return now - firstSeen >= CAMP_CRASH_THRESHOLD_MS;
-    }
-
-    public List<Tile> eligibleCampTiles() {
-        List<Tile> eligible = new ArrayList<>();
-        for (Tile camp : HOSIDIUS_SPOT_TILES) {
-            if (!isCampTileOccupied(camp)) {
-                eligible.add(camp);
-            }
-        }
-        return eligible;
-    }
-
-    public boolean hopToNextWorld() {
-        // Do not hop while in combat; wait until out of combat first
-        if (isInCombat()) {
-            if (getLog() != null) {
-                getLog().info("In combat; waiting to hop worlds...");
-            }
-            // Wait up to ~30 seconds for combat to end
-            boolean out = Condition.wait(() -> !isInCombat(), 200, 150);
-            if (!out) {
-                return false;
-            }
-        }
-
-        // Pair with sandcrabs no-combat timing: ensure we've been out of combat long enough
-        long requiredNoCombatMs = getCurrentNoCombatThresholdMillis();
-        long cap = Math.max(4000, Math.min(20000, requiredNoCombatMs));
-        if (minTrackedSkillExpDelta() < cap) {
-            if (getLog() != null) {
-                getLog().info("Waiting " + cap + "ms of no combat before hopping...");
-            }
-            int attempts = (int) Math.ceil(cap / 200.0) + 5;
-            boolean waited = Condition.wait(() -> minTrackedSkillExpDelta() >= cap, 200, attempts);
-            if (!waited) {
-                return false;
-            }
-        }
-
-        long now = System.currentTimeMillis();
-        if (now - lastWorldHopMillis < WORLD_HOP_COOLDOWN_MS) {
-            return false;
-        }
-        lastWorldHopMillis = now;
-
-        List<World> candidates = new ArrayList<>(Worlds.stream()
-                .filtered(World::valid)
-                .filtered(world -> {
-                    World.Type type = world.type();
-                    return type == World.Type.MEMBERS;
-                })
-                .filtered(world -> {
-                    World.Specialty specialty = world.specialty();
-                    return specialty != World.Specialty.PVP && specialty != World.Specialty.HIGH_RISK;
-                })
-                .list());
-
-        if (candidates.isEmpty()) {
-            return false;
-        }
-
-        candidates.sort(Comparator.comparingInt(World::getPopulation));
-        int poolSize = Math.min(10, candidates.size());
-        int index = Random.nextInt(0, poolSize);
-        World target = candidates.get(index);
-        if (target == null || !target.valid()) {
-            return false;
-        }
-
-        boolean hopped = target.hop();
-        if (!hopped) {
-            return false;
-        }
-
-        Condition.wait(() -> !Game.loggedIn(), 200, 25);
-        Condition.wait(Game::loggedIn, 200, 50);
-        resetCampSelection();
-        return true;
-    }
-
-    public boolean isInCombat() {
-        Player p = Players.local();
-        if (p == null || !p.valid()) {
-            return false;
-        }
-        try {
-            return (p.interacting().valid()) || p.healthBarVisible();
-        } catch (Exception ignored) {
-            return (p.interacting().valid());
-        }
-    }
-
-    public boolean canAttemptWorldHop() {
-        return System.currentTimeMillis() - lastWorldHopMillis >= WORLD_HOP_COOLDOWN_MS;
+    public SandCrabsContext getContext() {
+        return context;
     }
 
     private void initPaint() {
         PaintBuilder builder = PaintBuilder.newBuilder()
                 .x(15)
                 .y(40)
-                .trackSkill(Skill.Attack)
-                .trackSkill(Skill.Strength)
-                .trackSkill(Skill.Defence)
-                .trackSkill(Skill.Ranged)
-                .trackSkill(Skill.Magic)
-                .trackSkill(Skill.Hitpoints)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Attack)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Strength)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Defence)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Ranged)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Magic)
+                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Hitpoints)
                 .addString("Status", this::getCurrentStatus)
-                .addString("Training", this::getTrainingStatus);
-        if (MODE_OPTIMAL.equals(levellingMode)) {
-            builder = builder.addString("Optimal Target", this::getOptimalTargetStatus);
+                .addString("Training", () -> levellingService.trainingStatus());
+        if (MODE_OPTIMAL.equals(levellingService.getLevellingMode())) {
+            builder = builder.addString("Optimal Target", () -> levellingService.optimalTargetStatus());
         }
         Paint paint = builder.build();
         addPaint(paint);
     }
 
     private void refreshPaint() {
+        if (levellingService == null) {
+            return;
+        }
         try {
             clearPaints();
         } catch (Exception ignored) {
@@ -433,55 +146,108 @@ public class SandCrabsScript extends TaskScript {
         initPaint();
     }
 
-    private void readAndValidateConfiguration() {
-        useFood = Boolean.TRUE.equals(getOption("Use Food"));
+    private SandCrabsConfig loadConfiguration() {
+        boolean useFood = Boolean.TRUE.equals(getOption("Use Food"));
 
         Object minValue = getOption("Eat Min %");
         Object maxValue = getOption("Eat Max %");
-        eatMinPercent = clampToBounds(asInt(minValue, DEFAULT_EAT_MIN_PERCENT));
-        eatMaxPercent = clampToBounds(asInt(maxValue, DEFAULT_EAT_MAX_PERCENT));
+        int eatMinPercent = clampToBounds(asInt(minValue, DEFAULT_EAT_MIN_PERCENT));
+        int eatMaxPercent = clampToBounds(asInt(maxValue, DEFAULT_EAT_MAX_PERCENT));
         if (eatMinPercent > eatMaxPercent) {
             int temp = eatMinPercent;
             eatMinPercent = eatMaxPercent;
             eatMaxPercent = temp;
         }
 
+        String foodName = "";
         if (useFood) {
             Object foodValue = getOption("Food Name");
-            String name = foodValue instanceof String ? (String) foodValue : "Lobster";
-            name = name.trim();
+            String name = foodValue instanceof String ? ((String) foodValue).trim() : "Lobster";
             if (name.isEmpty()) {
-                // Pre-populate default if the field is blank
                 name = "Lobster";
             }
-            configuredFoodName = name;
-        } else {
-            configuredFoodName = "";
+            foodName = name;
         }
-    }
 
-    private void readAndValidateLevellingConfiguration() {
-        levellingEnabled = Boolean.TRUE.equals(getOption("Configure Levelling"));
+        boolean levellingEnabled = Boolean.TRUE.equals(getOption("Configure Levelling"));
         Object modeVal = getOption("Levelling Mode");
-        String mode = (modeVal instanceof String) ? ((String) modeVal).trim() : MODE_ON_LIMIT;
-        if (!MODE_WITHIN_RANGE.equalsIgnoreCase(mode)
-                && !MODE_ON_LIMIT.equalsIgnoreCase(mode)
-                && !MODE_OPTIMAL.equalsIgnoreCase(mode)) {
-            mode = MODE_ON_LIMIT;
+        String levellingMode = (modeVal instanceof String) ? ((String) modeVal).trim() : MODE_ON_LIMIT;
+        if (!MODE_WITHIN_RANGE.equalsIgnoreCase(levellingMode)
+                && !MODE_ON_LIMIT.equalsIgnoreCase(levellingMode)
+                && !MODE_OPTIMAL.equalsIgnoreCase(levellingMode)) {
+            levellingMode = MODE_ON_LIMIT;
         }
-        // Normalize to canonical labels
-        if (MODE_WITHIN_RANGE.equalsIgnoreCase(mode)) {
+        if (MODE_WITHIN_RANGE.equalsIgnoreCase(levellingMode)) {
             levellingMode = MODE_WITHIN_RANGE;
-        } else if (MODE_OPTIMAL.equalsIgnoreCase(mode)) {
+        } else if (MODE_OPTIMAL.equalsIgnoreCase(levellingMode)) {
             levellingMode = MODE_OPTIMAL;
         } else {
             levellingMode = MODE_ON_LIMIT;
         }
 
-        maxAttack = clampLevel(asInt(getOption("Max Attack"), MAX_LEVEL));
-        maxStrength = clampLevel(asInt(getOption("Max Strength"), MAX_LEVEL));
-        maxDefence = clampLevel(asInt(getOption("Max Defence"), MAX_LEVEL));
-        keepWithin = Math.max(1, Math.min(20, asInt(getOption("Keep Within Levels"), 5)));
+        int maxAttack = clampLevel(asInt(getOption("Max Attack"), MAX_LEVEL));
+        int maxStrength = clampLevel(asInt(getOption("Max Strength"), MAX_LEVEL));
+        int maxDefence = clampLevel(asInt(getOption("Max Defence"), MAX_LEVEL));
+        int keepWithin = Math.max(1, Math.min(20, asInt(getOption("Keep Within Levels"), 5)));
+
+        return SandCrabsConfig.builder()
+                .spotTiles(HOSIDIUS_SPOT_TILES)
+                .resetArea(RESET_AREA)
+                .bankTile(SHORE_BANK_TILE)
+                .useFood(useFood)
+                .foodName(foodName)
+                .eatMinPercent(eatMinPercent)
+                .eatMaxPercent(eatMaxPercent)
+                .levellingEnabled(levellingEnabled)
+                .levellingMode(levellingMode)
+                .maxAttackLevel(maxAttack)
+                .maxStrengthLevel(maxStrength)
+                .maxDefenceLevel(maxDefence)
+                .keepWithinLevels(keepWithin)
+                .minNoCombatSeconds(MIN_NO_COMBAT_SECONDS)
+                .maxNoCombatSeconds(MAX_NO_COMBAT_SECONDS)
+                .worldHopCooldownMillis(WORLD_HOP_COOLDOWN_MS)
+                .dormantWarningDelayMillis(DORMANT_WARNING_DELAY_MS)
+                .spotCrashThresholdMillis(SPOT_CRASH_THRESHOLD_MS)
+                .build();
+    }
+
+    private void rebuildConfiguration() {
+        SandCrabsConfig newConfig = loadConfiguration();
+        this.config = newConfig;
+        if (context != null) {
+            context.updateConfig(newConfig);
+            normalizeStateAgainstConfig();
+        }
+    }
+
+    private void normalizeStateAgainstConfig() {
+        if (state == null || config == null || combatMonitor == null || levellingService == null) {
+            return;
+        }
+        int threshold = state.getEatThresholdPercent();
+        if (threshold < config.getEatMinPercent() || threshold > config.getEatMaxPercent()) {
+            combatMonitor.rollNextEatThreshold();
+        }
+        long millis = state.getNoCombatThresholdMillis();
+        long min = config.getMinNoCombatSeconds() * 1000L;
+        long max = config.getMaxNoCombatSeconds() * 1000L;
+        if (millis < min || millis > max) {
+            combatMonitor.rollNextNoCombatThreshold();
+        }
+        if (!config.isLevellingEnabled()) {
+            levellingService.setCurrentTrainingSkill(null);
+        }
+    }
+
+    private void updateLevellingVisibility() {
+        boolean show = config != null && config.isLevellingEnabled();
+        updateVisibility("Levelling Mode", show);
+        updateVisibility("Max Attack", show);
+        updateVisibility("Max Strength", show);
+        updateVisibility("Max Defence", show);
+        boolean showWithin = show && config != null && MODE_WITHIN_RANGE.equals(config.getLevellingMode());
+        updateVisibility("Keep Within Levels", showWithin);
     }
 
     private int clampToBounds(int value) {
@@ -509,206 +275,31 @@ public class SandCrabsScript extends TaskScript {
     }
 
     private int clampLevel(int value) {
-        if (value < MIN_LEVEL) return MIN_LEVEL;
-        if (value > MAX_LEVEL) return MAX_LEVEL;
+        if (value < MIN_LEVEL) {
+            return MIN_LEVEL;
+        }
+        if (value > MAX_LEVEL) {
+            return MAX_LEVEL;
+        }
         return value;
     }
 
     @ValueChanged(keyName = "Use Food")
     public void onUseFoodChanged(Boolean enabled) {
         updateVisibility("Food Name", Boolean.TRUE.equals(enabled));
+        rebuildConfiguration();
     }
 
     @ValueChanged(keyName = "Configure Levelling")
     public void onConfigureLevellingChanged(Boolean enabled) {
-        levellingEnabled = Boolean.TRUE.equals(enabled);
+        rebuildConfiguration();
         updateLevellingVisibility();
     }
 
     @ValueChanged(keyName = "Levelling Mode")
     public void onLevellingModeChanged(String newMode) {
-        // Normalize and update visibility
-        String mode = newMode == null ? MODE_ON_LIMIT : newMode.trim();
-        if (MODE_WITHIN_RANGE.equalsIgnoreCase(mode)) {
-            levellingMode = MODE_WITHIN_RANGE;
-        } else if (MODE_OPTIMAL.equalsIgnoreCase(mode)) {
-            levellingMode = MODE_OPTIMAL;
-        } else {
-            levellingMode = MODE_ON_LIMIT;
-        }
+        rebuildConfiguration();
         updateLevellingVisibility();
         refreshPaint();
-    }
-
-    private void updateLevellingVisibility() {
-        boolean show = levellingEnabled;
-        updateVisibility("Levelling Mode", show);
-        updateVisibility("Max Attack", show);
-        updateVisibility("Max Strength", show);
-        updateVisibility("Max Defence", show);
-        boolean showWithin = show && MODE_WITHIN_RANGE.equals(levellingMode);
-        updateVisibility("Keep Within Levels", showWithin);
-    }
-
-    public boolean isLevellingEnabled() {
-        return levellingEnabled;
-    }
-
-    public String getLevellingMode() {
-        return levellingMode;
-    }
-
-    public int getMaxFor(Skill skill) {
-        if (skill == Skill.Attack) return maxAttack;
-        if (skill == Skill.Strength) return maxStrength;
-        if (skill == Skill.Defence) return maxDefence;
-        return MAX_LEVEL;
-    }
-
-    public int realLevel(Skill skill) {
-        return Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, Skills.realLevel(skill)));
-    }
-
-    public boolean reachedLimit(Skill skill) {
-        return realLevel(skill) >= getMaxFor(skill);
-    }
-
-    public boolean allGoalsReached() {
-        return reachedLimit(Skill.Attack) && reachedLimit(Skill.Strength) && reachedLimit(Skill.Defence);
-    }
-
-    public Skill getInitialLockedSkill() {
-        return initialLockedSkill;
-    }
-
-    public int getKeepWithin() {
-        return keepWithin;
-    }
-
-    public void setCurrentTrainingSkill(Skill skill) {
-        currentTrainingSkill = skill;
-    }
-
-    public Skill getCurrentTrainingSkill() {
-        return currentTrainingSkill;
-    }
-
-    public String getTrainingStatus() {
-        if (!levellingEnabled) return "Off";
-        if (allGoalsReached()) return "All goals reached";
-        Skill s = currentTrainingSkill;
-        if (s == null) return "Training Pending";
-        String name = (s == Skill.Attack ? "Attack" : s == Skill.Strength ? "Strength" : s == Skill.Defence ? "Defence" : s.name());
-        int targetLevel = nextTargetLevel(s);
-        if (targetLevel <= 0) return "Training " + name;
-        return "Training " + name + " to " + targetLevel;
-    }
-
-    public String getOptimalTargetStatus() {
-        if (!levellingEnabled || !MODE_OPTIMAL.equals(levellingMode)) return "";
-        SkillTarget t = currentOptimalTarget();
-        if (t == null) return "Milestones complete";
-        return "A/S/D: " + t.attack + "/" + t.strength + "/" + t.defence;
-    }
-
-    public Combat.Style styleFor(Skill skill) {
-        if (skill == Skill.Attack) return Combat.Style.ACCURATE;
-        if (skill == Skill.Strength) return Combat.Style.AGGRESSIVE;
-        if (skill == Skill.Defence) return Combat.Style.DEFENSIVE;
-        return Combat.Style.CONTROLLED;
-    }
-
-    public Skill mapStyleToSkill(Combat.Style style) {
-        if (style == null) return null;
-        switch (style) {
-            case ACCURATE: return Skill.Attack;
-            case AGGRESSIVE: return Skill.Strength;
-            case DEFENSIVE: return Skill.Defence;
-            default: return null; // CONTROLLED or unknown -> no lock
-        }
-    }
-
-    public int nextTargetLevel(Skill skill) {
-        if (!levellingEnabled || skill == null) return 0;
-        if (allGoalsReached()) return realLevel(skill);
-        if (MODE_ON_LIMIT.equals(levellingMode)) {
-            return getMaxFor(skill);
-        }
-        if (MODE_OPTIMAL.equals(levellingMode)) {
-            SkillTarget t = currentOptimalTarget();
-            if (t == null) return getMaxFor(skill);
-            int cap = getMaxFor(skill);
-            return Math.min(cap, t.forSkill(skill));
-        }
-
-        // MODE_WITHIN_RANGE
-        int current = realLevel(skill);
-        int ownLimit = getMaxFor(skill);
-
-        // Collect other eligible skills (not at limit)
-        java.util.List<Skill> others = new java.util.ArrayList<>();
-        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
-            if (s != skill && !reachedLimit(s)) {
-                others.add(s);
-            }
-        }
-
-        if (others.isEmpty()) {
-            return ownLimit; // No other skills to balance against
-        }
-
-        int highestOther = 0;
-        int minThreshold = Integer.MAX_VALUE;
-        for (Skill s : others) {
-            int lv = realLevel(s);
-            if (lv > highestOther) highestOther = lv;
-            int threshold = lv + getKeepWithin();
-            if (threshold < minThreshold) minThreshold = threshold;
-        }
-
-        boolean isTop = current >= highestOther;
-        if (isTop) {
-            // Switch away when we reach the earliest threshold among others
-            return Math.min(ownLimit, minThreshold);
-        }
-        // Catch-up target equals the highest other level (but not above our own max)
-        return Math.min(ownLimit, highestOther);
-    }
-
-    // ---------- Optimal mode helpers ----------
-
-    private SkillTarget currentOptimalTarget() {
-        for (SkillTarget t : OPTIMAL_TARGETS) {
-            int a = Math.min(t.attack, getMaxFor(Skill.Attack));
-            int st = Math.min(t.strength, getMaxFor(Skill.Strength));
-            int d = Math.min(t.defence, getMaxFor(Skill.Defence));
-            boolean met = realLevel(Skill.Attack) >= a
-                    && realLevel(Skill.Strength) >= st
-                    && realLevel(Skill.Defence) >= d;
-            if (!met) {
-                return new SkillTarget(a, st, d, t.ranged, t.magic);
-            }
-        }
-        return null; // All optimal targets satisfied within caps
-    }
-
-    public java.util.List<Skill> computeOptimalCandidates() {
-        ArrayList<Skill> result = new ArrayList<>();
-        SkillTarget t = currentOptimalTarget();
-        if (t != null) {
-            for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
-                if (reachedLimit(s)) continue;
-                int target = t.forSkill(s);
-                if (realLevel(s) < target) {
-                    result.add(s);
-                    break; // first unmet in A>S>D within current milestone
-                }
-            }
-        }
-        if (!result.isEmpty()) return result;
-        for (Skill s : new Skill[]{Skill.Attack, Skill.Strength, Skill.Defence}) {
-            if (!reachedLimit(s)) result.add(s);
-        }
-        return result;
     }
 }

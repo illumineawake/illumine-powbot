@@ -1,99 +1,97 @@
 package org.illumine.sandcrabs.tasks;
 
+import org.illumine.sandcrabs.SandCrabsContext;
 import org.illumine.sandcrabs.SandCrabsScript;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.Movement;
 import org.powbot.api.rt4.Player;
+import org.powbot.api.rt4.Players;
+
+import java.util.List;
 
 public class ResetAggroTask extends SandCrabsTask {
 
     private static final String STATUS = "Resetting aggro";
 
-    public ResetAggroTask(SandCrabsScript script) {
-        super(script);
+    public ResetAggroTask(SandCrabsScript script, SandCrabsContext context) {
+        super(script, context);
     }
 
     @Override
     public boolean validate() {
-        Tile camp = script.getCurrentCampTile();
-        Player player = local();
-        if (camp == null || player == null) {
+        Tile spot = context.spotManager().getCurrentSpot();
+        if (spot == null) {
             return false;
         }
 
-        if (player.tile() == null || player.tile().distanceTo(camp) > 10) {
+        if (Players.local().tile().distanceTo(spot) > 10) {
             return false;
         }
 
-        long elapsed = script.minTrackedSkillExpDelta();
-        if (elapsed < script.getCurrentNoCombatThresholdMillis()) {
+        long elapsed = context.combatMonitor().minTrackedSkillExpDelta();
+        if (elapsed < context.combatMonitor().getCurrentNoCombatThresholdMillis()) {
             return false;
         }
 
-        return script.isDormantCrabNearby();
+        return context.spotManager().hasNearbyDormantCrab();
     }
 
     @Override
     public void run() {
-        Tile camp = script.getCurrentCampTile();
-        if (camp == null) {
+        Tile spot = context.spotManager().getCurrentSpot();
+        if (spot == null) {
             return;
         }
 
-        Tile resetTile = script.getResetArea().getRandomTile();
-        if (resetTile != null) {
+        Tile resetTile = context.config().getResetArea().getRandomTile();
             Movement.moveTo(resetTile);
-            Condition.wait(() -> {
-                Player current = local();
-                return current != null && script.getResetArea().contains(current);
-            }, 200, 25);
-        }
+            Condition.wait(() ->
+               context.config().getResetArea().contains(Players.local()), 200, 25);
 
-        // Random pause before returning toward camp
+
+        // Random pause before returning toward the previous spot
         Condition.sleep(Random.nextInt(600, 1000));
 
-        // Walk back toward the previous camp, but stop within 7 tiles to reassess occupancy
-        if (local() != null && local().tile() != null) {
-            if (local().tile().distanceTo(camp) > 7) {
-                Movement.moveTo(camp);
+        // Walk back toward the previous spot, but stop within 7 tiles to reassess occupancy
+            if (Players.local().tile().distanceTo(spot) > 7) {
+                Movement.moveTo(spot);
                 Condition.wait(() -> {
-                    Player p = local();
-                    return p != null && p.tile() != null && p.tile().distanceTo(camp) <= 7;
+                    Player p = Players.local();
+                    return p != null && p.tile() != null && p.tile().distanceTo(spot) <= 7;
                 }, 200, 30);
             }
-        }
 
-        // Reassess our last spot; if free, return to it. Otherwise try another free camp.
-        boolean lastSpotFree = !script.isCampTileOccupied(camp);
+        // Reassess our last spot; if free, return to it. Otherwise try another free spot.
+        boolean lastSpotFree = !context.spotManager().isSpotOccupied(spot);
         if (lastSpotFree) {
-            Movement.moveTo(camp);
-            Condition.wait(() -> isOnTile(camp), 200, 30);
+            Movement.moveTo(spot);
+            Condition.wait(() -> Players.local().tile().equals(spot), 200, 30);
         } else {
-            // Try another available camp; if none are free, follow hop logic
-            java.util.List<Tile> eligible = script.eligibleCampTiles();
-            // Remove our previous camp from consideration since it's occupied
-            eligible.removeIf(t -> t != null && t.equals(camp));
+            // Try another available spot; if none are free, follow hop logic
+            List<Tile> eligible = context.spotManager().eligibleSpots();
+            // Remove our previous spot from consideration since it's occupied
+            eligible.removeIf(t -> t != null && t.equals(spot));
 
             if (eligible.isEmpty()) {
-                // No free spots; rely on existing hop logic (now combat-safe in script)
-                script.hopToNextWorld();
+                // No free spots; rely on existing hop logic (combat-safe)
+                context.spotManager().hopToNextWorld();
             } else {
                 int idx = Random.nextInt(0, eligible.size());
-                Tile nextCamp = eligible.get(idx);
-                script.setCurrentCampTile(nextCamp);
-                Movement.moveTo(nextCamp);
-                final Tile target = nextCamp;
-                boolean arrived = Condition.wait(() -> isOnTile(target), 200, 25);
-                if (!arrived && !isOnTile(target)) {
+                Tile nextSpot = eligible.get(idx);
+                context.spotManager().setCurrentSpot(nextSpot);
+                Movement.moveTo(nextSpot);
+                final Tile target = nextSpot;
+                boolean arrived = Condition.wait(() -> Players.local().tile().equals(target), 200, 25);
+                if (!arrived && !Players.local().tile().equals(target)) {
                     Movement.step(target);
-                    Condition.wait(() -> isOnTile(target), 200, 10);
+                    Condition.wait(() -> Players.local().tile().equals(target), 200, 10);
                 }
             }
         }
 
-        script.rollNextNoCombatThreshold();
+        context.combatMonitor().rollNextNoCombatThreshold();
     }
 
     @Override
