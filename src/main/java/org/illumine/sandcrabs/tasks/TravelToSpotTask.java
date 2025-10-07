@@ -2,8 +2,6 @@ package org.illumine.sandcrabs.tasks;
 
 import org.illumine.sandcrabs.SandCrabsContext;
 import org.illumine.sandcrabs.SandCrabsScript;
-import org.powbot.api.Condition;
-import org.powbot.api.Random;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.Movement;
 import org.powbot.api.rt4.Players;
@@ -46,38 +44,27 @@ public class TravelToSpotTask extends SandCrabsTask {
             return;
         }
 
+        // Apply simple prioritization filter (prefer >3 crabs when enabled)
+        eligible = prioritizedEligible(eligible);
+
         Tile currentTarget = context.spotManager().getCurrentSpot();
-        Tile currentTile = Players.local().tile();
-        if (currentTarget == null || !eligible.contains(currentTarget)) {
-            // Prefer the nearest eligible spot to the local player instead of a random one
-            Tile nearest = null;
-            double best = Double.MAX_VALUE;
-            for (Tile t : eligible) {
-                double d = currentTile.distanceTo(t);
-                if (d < best) {
-                    best = d;
-                    nearest = t;
-                }
-            }
-            if (nearest == null) {
-                int index = Random.nextInt(0, eligible.size());
-                nearest = eligible.get(index);
-            }
-            currentTarget = nearest;
+        if (currentTarget == null || !contains(eligible, currentTarget)) {
+            currentTarget = chooseNearest(eligible, Players.local().tile());
             context.spotManager().setCurrentSpot(currentTarget);
         }
 
-        if (currentTarget == null || currentTile.equals(currentTarget)) {
-            return;
-        }
-
         Movement.moveTo(currentTarget);
-        final Tile target = currentTarget;
-        boolean arrived = Condition.wait(() -> Players.local().tile().equals(target), 200, 25);
-        if (!arrived && !Players.local().tile().equals(target)) {
-            Movement.step(target);
-            Condition.wait(() -> Players.local().tile().equals(target), 200, 10);
+    }
+
+    private List<Tile> prioritizedEligible(List<Tile> eligible) {
+        return filterByCrabPreference(eligible, shouldPrioritizeMoreThanThree());
+    }
+
+    private boolean contains(List<Tile> tiles, Tile t) {
+        for (Tile x : tiles) {
+            if (x.equals(t)) return true;
         }
+        return false;
     }
 
     @Override

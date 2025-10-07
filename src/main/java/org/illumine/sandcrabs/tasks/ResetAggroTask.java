@@ -2,13 +2,14 @@ package org.illumine.sandcrabs.tasks;
 
 import org.illumine.sandcrabs.SandCrabsContext;
 import org.illumine.sandcrabs.SandCrabsScript;
+import org.illumine.sandcrabs.SandCrabSpots;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.Movement;
-import org.powbot.api.rt4.Player;
 import org.powbot.api.rt4.Players;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ResetAggroTask extends SandCrabsTask {
@@ -40,11 +41,32 @@ public class ResetAggroTask extends SandCrabsTask {
 
     @Override
     public void run() {
-        Tile spot = context.spotManager().getCurrentSpot();
-        if (spot == null) {
+        Tile currentSpot = context.spotManager().getCurrentSpot();
+        if (currentSpot == null) {
             return;
         }
 
+        moveToResetPath(currentSpot);
+
+        List<Tile> eligible = context.spotManager().eligibleSpots();
+        Tile target = selectTargetSpot(currentSpot, eligible);
+        if (target == null) {
+            context.spotManager().hopToNextWorld();
+            context.combatMonitor().rollNextNoCombatThreshold();
+            return;
+        }
+
+        context.spotManager().setCurrentSpot(target);
+        travelToSpot(target);
+        context.combatMonitor().rollNextNoCombatThreshold();
+    }
+
+    @Override
+    public String status() {
+        return STATUS;
+    }
+
+    private void moveToResetPath(Tile spot) {
         Tile resetTile = context.config().getResetArea().getRandomTile();
         Movement.moveTo(resetTile);
 
@@ -53,42 +75,44 @@ public class ResetAggroTask extends SandCrabsTask {
 
         // Walk back toward the previous spot, but stop within 7 tiles to reassess occupancy
         if (Players.local().tile().distanceTo(spot) > 7) {
-            Movement.builder(spot).setWalkUntil(() -> Players.local().tile().distanceTo(spot) <= 7).move();
+            Movement.builder(spot)
+                    .setWalkUntil(() -> Players.local().tile().distanceTo(spot) <= 7)
+                    .move();
         }
+    }
 
-        // Reassess our last spot; if free, return to it. Otherwise try another free spot.
-        boolean lastSpotFree = !context.spotManager().isSpotOccupied(spot);
-        if (lastSpotFree) {
-            Movement.moveTo(spot);
-            Condition.wait(() -> Players.local().tile().equals(spot), 200, 30);
-        } else {
-            // Try another available spot; if none are free, follow hop logic
-            List<Tile> eligible = context.spotManager().eligibleSpots();
-            // Remove our previous spot from consideration since it's occupied
-            eligible.removeIf(t -> t != null && t.equals(spot));
+    private Tile selectTargetSpot(Tile previousSpot, List<Tile> eligible) {
+        List<Tile> available = eligible == null ? new ArrayList<>() : new ArrayList<>(eligible);
 
-            if (eligible.isEmpty()) {
-                // No free spots; rely on existing hop logic (combat-safe)
-                context.spotManager().hopToNextWorld();
-            } else {
-                int idx = Random.nextInt(0, eligible.size());
-                Tile nextSpot = eligible.get(idx);
-                context.spotManager().setCurrentSpot(nextSpot);
-                Movement.moveTo(nextSpot);
-                final Tile target = nextSpot;
-                boolean arrived = Condition.wait(() -> Players.local().tile().equals(target), 200, 25);
-                if (!arrived && !Players.local().tile().equals(target)) {
-                    Movement.step(target);
-                    Condition.wait(() -> Players.local().tile().equals(target), 200, 10);
-                }
+        boolean preferMoreThanThree = shouldPrioritizeMoreThanThree();
+        boolean currentIsThree = SandCrabSpots.isThreeCrabSpot(previousSpot);
+        if (preferMoreThanThree && currentIsThree) {
+            List<Tile> more = spotsMatchingCrabPreference(available, true);
+            if (!more.isEmpty()) {
+                return chooseNearest(more, Players.local().tile());
             }
         }
 
-        context.combatMonitor().rollNextNoCombatThreshold();
+        if (!context.spotManager().isSpotOccupied(previousSpot)) {
+            return previousSpot;
+        }
+
+        available.removeIf(t -> t != null && t.equals(previousSpot));
+        if (available.isEmpty()) {
+            return null;
+        }
+
+        return chooseNearest(available, Players.local().tile());
     }
 
-    @Override
-    public String status() {
-        return STATUS;
+    private void travelToSpot(Tile target) {
+        Movement.moveTo(target);
+        boolean arrived = Condition.wait(() -> Players.local().tile().equals(target), 200, 25);
+        if (arrived || Players.local().tile().equals(target)) {
+            return;
+        }
+
+        Movement.step(target);
+        Condition.wait(() -> Players.local().tile().equals(target), 200, 10);
     }
 }
