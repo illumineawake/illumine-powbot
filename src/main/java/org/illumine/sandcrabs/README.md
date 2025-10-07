@@ -5,8 +5,9 @@ Kills Sand Crabs in south Hosidius with additional features.
 Features
 - Selects free crab spots and world‑hops if none are free
 - Randomised eating threshold between configured min/max
+- Supports randomised potion drinking. Start with potions in your inventory.
 - Aggro reset
-- Bank restocking: withdraw configured food or stop if none available
+- Bank restocking: withdraw configured food/potions or stop if none available
 - Configurable levelling (Melee only): Attack/Strength/Defence max caps, style switching, stop on goals
 - Paint: tracks XP/levels and current status
 
