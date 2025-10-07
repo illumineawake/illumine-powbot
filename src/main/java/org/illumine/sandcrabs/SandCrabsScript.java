@@ -13,6 +13,7 @@ import org.illumine.taskscript.TaskScript;
 import org.powbot.api.Area;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.Combat;
+import org.powbot.api.rt4.Inventory;
 import org.powbot.api.script.OptionType;
 import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptConfiguration;
@@ -78,6 +79,7 @@ public class SandCrabsScript extends TaskScript {
         combatMonitor.rollNextEatThreshold();
         combatMonitor.rollNextNoCombatThreshold();
 
+        Inventory.open();
         // Detect starting potion set based on inventory at script start
         try {
             potionService.initFromInventory();
