@@ -6,9 +6,14 @@ import org.powbot.api.Condition;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.*;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 public class BankAndStopTask extends SandCrabsTask {
 
-    private static final String STATUS = "Restocking food";
+    private static final String STATUS = "Restocking supplies";
 
     public BankAndStopTask(SandCrabsScript script, SandCrabsContext context) {
         super(script, context);
@@ -16,10 +21,13 @@ public class BankAndStopTask extends SandCrabsTask {
 
     @Override
     public boolean validate() {
-        if (!context.config().isUseFood()) {
-            return false;
+        boolean needFood = context.config().isUseFood() && !context.hasRequiredFoodInInventory();
+        boolean needPots = false;
+        try {
+            needPots = context.potionService().shouldRestockNow();
+        } catch (Exception ignored) {
         }
-        return !context.hasRequiredFoodInInventory();
+        return needFood || needPots;
     }
 
     @Override
@@ -41,12 +49,21 @@ public class BankAndStopTask extends SandCrabsTask {
             return;
         }
 
-        // Only deposit if inventory is full and contains no food (safety)
-        // Avoid dumping partial inventories unnecessarily.
-        final int maxSlots = 28;
-        if (Inventory.isFull() && !context.hasRequiredFoodInInventory()) {
-            Bank.depositInventory();
-            Condition.wait(() -> (int) Inventory.stream().count() < maxSlots, 100, 20);
+        // Deposit entire inventory, then withdraw potions first and food afterwards
+        Bank.depositInventory();
+        Condition.wait(() -> (int) Inventory.stream().count() < 28, 100, 20);
+
+        // If we also use potions and need them, restock potions first
+        try {
+            if (context.potionService().shouldUsePotions()) {
+                context.potionService().restockAtBank();
+                if (context.potionService().isOutOfStock() && context.config().isStopWhenOutOfPotions()) {
+                    script.setCurrentStatus("Out of potions — stopping");
+                    script.getController().stop();
+                    return;
+                }
+            }
+        } catch (Exception ignored) {
         }
 
         // Withdraw all configured food

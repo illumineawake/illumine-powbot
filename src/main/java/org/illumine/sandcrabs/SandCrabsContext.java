@@ -15,17 +15,20 @@ public class SandCrabsContext {
     private final CombatMonitor combatMonitor;
     private final SpotManager spotManager;
     private final LevellingService levellingService;
+    private final PotionService potionService;
 
     public SandCrabsContext(SandCrabsConfig config,
                             SandCrabsState state,
                             CombatMonitor combatMonitor,
                             SpotManager spotManager,
-                            LevellingService levellingService) {
+                            LevellingService levellingService,
+                            PotionService potionService) {
         this.config = config;
         this.state = state;
         this.combatMonitor = combatMonitor;
         this.spotManager = spotManager;
         this.levellingService = levellingService;
+        this.potionService = potionService;
     }
 
     public SandCrabsConfig config() {
@@ -46,6 +49,10 @@ public class SandCrabsContext {
 
     public LevellingService levellingService() {
         return levellingService;
+    }
+
+    public PotionService potionService() {
+        return potionService;
     }
 
     public void updateConfig(SandCrabsConfig config) {

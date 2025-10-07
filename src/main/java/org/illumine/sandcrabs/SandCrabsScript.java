@@ -7,6 +7,7 @@ import org.illumine.sandcrabs.tasks.ManageLevellingTask;
 import org.illumine.sandcrabs.tasks.ResetAggroTask;
 import org.illumine.sandcrabs.tasks.SandCrabsTask;
 import org.illumine.sandcrabs.tasks.TravelToSpotTask;
+import org.illumine.sandcrabs.tasks.UsePotionsTask;
 import org.illumine.taskscript.Task;
 import org.illumine.taskscript.TaskScript;
 import org.powbot.api.Area;
@@ -33,17 +34,9 @@ import java.util.List;
 @ScriptConfiguration(name = "Max Strength", description = "Max Strength level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Max Defence", description = "Max Defence level to train to", optionType = OptionType.INTEGER, defaultValue = "99", visible = false)
 @ScriptConfiguration(name = "Keep Within Levels", description = "Keep combat skills within X levels of each other", optionType = OptionType.INTEGER, defaultValue = "5", visible = false)
+@ScriptConfiguration(name = "Stop when out of potions", description = "Stop at bank when out of starting potions", optionType = OptionType.BOOLEAN, defaultValue = "false")
 @ScriptManifest(name = "illu Sand Crabs", description = "Kills Sand Crabs at Southern Hosidious beach, with bank restocking and combat style switching", author = "illumine", category = ScriptCategory.Combat, version = "0.2.0")
 public class SandCrabsScript extends TaskScript {
-
-    public static final List<Tile> HOSIDIUS_SPOT_TILES = List.of(
-            new Tile(1790, 3468, 0),
-            new Tile(1776, 3468, 0), //3 NPCs
-            new Tile(1773, 3461, 0), //3 NPCs
-            new Tile(1765, 3468, 0), //3 NPCs
-            new Tile(1749, 3469, 0),
-            new Tile(1738, 3468, 0)
-    );
 
     public static final Area RESET_AREA = new Area(new Tile(1741, 3501, 0), new Tile(1745, 3498, 0));
     public static final Tile SHORE_BANK_TILE = new Tile(1720, 3465, 0);
@@ -70,6 +63,7 @@ public class SandCrabsScript extends TaskScript {
     private SpotManager spotManager;
     private LevellingService levellingService;
     private SandCrabsContext context;
+    private PotionService potionService;
 
     @Override
     public void onStart() {
@@ -78,10 +72,17 @@ public class SandCrabsScript extends TaskScript {
         combatMonitor = new CombatMonitor(getLog(), config, state);
         spotManager = new SpotManager(getLog(), config, state, combatMonitor);
         levellingService = new LevellingService(config, state);
-        context = new SandCrabsContext(config, state, combatMonitor, spotManager, levellingService);
+        potionService = new PotionService(getLog(), levellingService);
+        context = new SandCrabsContext(config, state, combatMonitor, spotManager, levellingService, potionService);
 
         combatMonitor.rollNextEatThreshold();
         combatMonitor.rollNextNoCombatThreshold();
+
+        // Detect starting potion set based on inventory at script start
+        try {
+            potionService.initFromInventory();
+        } catch (Exception ignored) {
+        }
 
         try {
             Combat.Style style = Combat.style();
@@ -99,6 +100,7 @@ public class SandCrabsScript extends TaskScript {
         return addAll(
                 new BankAndStopTask(this, context),
                 new EatFoodTask(this, context),
+                new UsePotionsTask(this, context),
                 new ResetAggroTask(this, context),
                 new ManageLevellingTask(this, context),
                 new TravelToSpotTask(this, context),
@@ -189,7 +191,7 @@ public class SandCrabsScript extends TaskScript {
         int keepWithin = Math.max(1, Math.min(20, asInt(getOption("Keep Within Levels"), 5)));
 
         return SandCrabsConfig.builder()
-                .spotTiles(HOSIDIUS_SPOT_TILES)
+                .spotTiles(SandCrabSpots.hosidiusTiles())
                 .resetArea(RESET_AREA)
                 .bankTile(SHORE_BANK_TILE)
                 .useFood(useFood)
@@ -207,6 +209,7 @@ public class SandCrabsScript extends TaskScript {
                 .worldHopCooldownMillis(WORLD_HOP_COOLDOWN_MS)
                 .dormantWarningDelayMillis(DORMANT_WARNING_DELAY_MS)
                 .spotCrashThresholdMillis(SPOT_CRASH_THRESHOLD_MS)
+                .stopWhenOutOfPotions(Boolean.TRUE.equals(getOption("Stop when out of potions")))
                 .build();
     }
 

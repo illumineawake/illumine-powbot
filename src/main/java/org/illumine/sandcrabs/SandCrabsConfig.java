@@ -33,6 +33,7 @@ public final class SandCrabsConfig {
     private final long worldHopCooldownMillis;
     private final long dormantWarningDelayMillis;
     private final long spotCrashThresholdMillis;
+    private final boolean stopWhenOutOfPotions;
 
     private SandCrabsConfig(Builder builder) {
         this.spotTiles = Collections.unmodifiableList(new ArrayList<>(builder.spotTiles));
@@ -53,6 +54,7 @@ public final class SandCrabsConfig {
         this.worldHopCooldownMillis = builder.worldHopCooldownMillis;
         this.dormantWarningDelayMillis = builder.dormantWarningDelayMillis;
         this.spotCrashThresholdMillis = builder.spotCrashThresholdMillis;
+        this.stopWhenOutOfPotions = builder.stopWhenOutOfPotions;
     }
 
     public static Builder builder() {
@@ -131,6 +133,10 @@ public final class SandCrabsConfig {
         return spotCrashThresholdMillis;
     }
 
+    public boolean isStopWhenOutOfPotions() {
+        return stopWhenOutOfPotions;
+    }
+
     public Builder toBuilder() {
         return new Builder(this);
     }
@@ -154,6 +160,7 @@ public final class SandCrabsConfig {
         private long worldHopCooldownMillis;
         private long dormantWarningDelayMillis;
         private long spotCrashThresholdMillis;
+        private boolean stopWhenOutOfPotions;
 
         private Builder() {
         }
@@ -177,6 +184,7 @@ public final class SandCrabsConfig {
             this.worldHopCooldownMillis = config.worldHopCooldownMillis;
             this.dormantWarningDelayMillis = config.dormantWarningDelayMillis;
             this.spotCrashThresholdMillis = config.spotCrashThresholdMillis;
+            this.stopWhenOutOfPotions = config.stopWhenOutOfPotions;
         }
 
         public Builder spotTiles(List<Tile> spotTiles) {
@@ -266,6 +274,11 @@ public final class SandCrabsConfig {
 
         public Builder spotCrashThresholdMillis(long spotCrashThresholdMillis) {
             this.spotCrashThresholdMillis = spotCrashThresholdMillis;
+            return this;
+        }
+
+        public Builder stopWhenOutOfPotions(boolean stop) {
+            this.stopWhenOutOfPotions = stop;
             return this;
         }
 
