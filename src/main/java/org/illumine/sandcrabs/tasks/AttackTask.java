@@ -23,14 +23,9 @@ public class AttackTask extends SandCrabsTask {
 
     @Override
     public void run() {
-        if (!Combat.autoRetaliate()) {
-            Combat.autoRetaliate(true);
-        }
+        Combat.autoRetaliate(true);
 
         Tile spot = context.spotManager().getCurrentSpot();
-        if (spot == null) {
-            return;
-        }
 
         // If we've been idle (no XP gain) for a short while and not in combat,
         // proactively attack an available crab nearby.
@@ -42,9 +37,8 @@ public class AttackTask extends SandCrabsTask {
                 Npc target = Npcs.stream()
                         .name("Sand Crab")
                         .within(spot, 7)
-                        .filtered(n -> n.valid()
-                                && !n.interacting().valid()
-                                && n.actions().contains("Attack"))
+                        .notInteracting()
+                        .action("Attack")
                         .nearest()
                         .first();
 

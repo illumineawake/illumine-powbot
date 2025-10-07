@@ -25,10 +25,12 @@ public class BankAndStopTask extends SandCrabsTask {
     @Override
     public void run() {
         Tile bankTile = context.config().getBankTile();
-        Player current = Players.local();
 
         Movement.moveTo(bankTile);
-        Condition.wait(() -> bankTile.distanceTo(current) <= 5, 200, 30);
+
+        if (!Bank.inViewport()) {
+            Camera.turnTo(Bank.nearest());
+        }
 
         // Try to open the bank when it's in viewport
         if (Bank.inViewport()) {
@@ -42,22 +44,25 @@ public class BankAndStopTask extends SandCrabsTask {
         // Only deposit if inventory is full and contains no food (safety)
         // Avoid dumping partial inventories unnecessarily.
         final int maxSlots = 28;
-        int occupied = (int) Inventory.stream().count();
-        boolean invFull = occupied >= maxSlots;
-        if (invFull && !context.hasRequiredFoodInInventory()) {
+        if (Inventory.isFull() && !context.hasRequiredFoodInInventory()) {
             Bank.depositInventory();
             Condition.wait(() -> (int) Inventory.stream().count() < maxSlots, 100, 20);
         }
 
         // Withdraw all configured food
         String foodName = context.config().getFoodName();
-        if (foodName != null && !foodName.isEmpty()) {
-            Bank.withdraw(foodName, Integer.MAX_VALUE);
-            Condition.wait(context::hasRequiredFoodInInventory, 100, 20);
+
+        if (foodName == null || foodName.isEmpty()) {
+            script.setCurrentStatus("Configuration for food name is empty! Stopping.");
+            return;
         }
 
-        // If we still don't have food in inventory after withdraw, stop the script (none in bank)
-        if (!context.hasRequiredFoodInInventory()) {
+        Item foodBank = Bank.stream().name(foodName).first();
+        if (foodBank.valid()) {
+            Bank.withdraw(foodName, Integer.MAX_VALUE);
+            Condition.wait(context::hasRequiredFoodInInventory, 100, 20);
+        } else {
+            script.setCurrentStatus(foodName + " not found in Bank. Stopping.");
             script.getController().stop();
         }
     }

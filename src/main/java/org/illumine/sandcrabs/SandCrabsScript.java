@@ -38,9 +38,9 @@ public class SandCrabsScript extends TaskScript {
 
     public static final List<Tile> HOSIDIUS_SPOT_TILES = List.of(
             new Tile(1790, 3468, 0),
-            new Tile(1776, 3468, 0),
-            new Tile(1773, 3461, 0),
-            new Tile(1765, 3468, 0),
+            new Tile(1776, 3468, 0), //3 NPCs
+            new Tile(1773, 3461, 0), //3 NPCs
+            new Tile(1765, 3468, 0), //3 NPCs
             new Tile(1749, 3469, 0),
             new Tile(1738, 3468, 0)
     );
@@ -82,8 +82,6 @@ public class SandCrabsScript extends TaskScript {
 
         combatMonitor.rollNextEatThreshold();
         combatMonitor.rollNextNoCombatThreshold();
-        updateVisibility("Food Name", config.isUseFood());
-        updateLevellingVisibility();
 
         try {
             Combat.Style style = Combat.style();

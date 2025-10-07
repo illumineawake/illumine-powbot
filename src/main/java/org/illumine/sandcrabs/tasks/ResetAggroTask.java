@@ -46,22 +46,15 @@ public class ResetAggroTask extends SandCrabsTask {
         }
 
         Tile resetTile = context.config().getResetArea().getRandomTile();
-            Movement.moveTo(resetTile);
-            Condition.wait(() ->
-               context.config().getResetArea().contains(Players.local()), 200, 25);
-
+        Movement.moveTo(resetTile);
 
         // Random pause before returning toward the previous spot
-        Condition.sleep(Random.nextInt(600, 1000));
+        Condition.sleep(Random.nextInt(600, 4000));
 
         // Walk back toward the previous spot, but stop within 7 tiles to reassess occupancy
-            if (Players.local().tile().distanceTo(spot) > 7) {
-                Movement.moveTo(spot);
-                Condition.wait(() -> {
-                    Player p = Players.local();
-                    return p.tile().distanceTo(spot) <= 7;
-                }, 200, 30);
-            }
+        if (Players.local().tile().distanceTo(spot) > 7) {
+            Movement.builder(spot).setWalkUntil(() -> Players.local().tile().distanceTo(spot) <= 7).move();
+        }
 
         // Reassess our last spot; if free, return to it. Otherwise try another free spot.
         boolean lastSpotFree = !context.spotManager().isSpotOccupied(spot);

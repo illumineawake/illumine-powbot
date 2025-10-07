@@ -2,6 +2,7 @@ package org.illumine.sandcrabs;
 
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
+import org.powbot.api.rt4.Actor;
 import org.powbot.api.rt4.Npc;
 import org.powbot.api.rt4.Npcs;
 import org.powbot.api.rt4.Player;
@@ -70,10 +71,9 @@ public class CombatMonitor {
     }
 
     public boolean isDormantCrabNearby() {
-        Player local = Players.local();
         Npc dormant = Npcs.stream()
                 .name("Sandy rocks")
-                .within(local, 2)
+                .within(2)
                 .first();
 
         if (dormant.valid()) {
@@ -94,10 +94,15 @@ public class CombatMonitor {
     public boolean isInCombat() {
         Player player = Players.local();
         try {
-            return player.interacting().valid() || player.healthBarVisible();
+            return isInteractingWithHostile(player) || player.healthBarVisible();
         } catch (Exception ignored) {
-            return player.interacting().valid();
+            return isInteractingWithHostile(player);
         }
+    }
+
+    private boolean isInteractingWithHostile(Player player) {
+        Actor interacting = player.interacting();
+        return interacting.valid() && interacting.actions().contains("Attack");
     }
 
     public boolean waitUntilOutOfCombat() {
