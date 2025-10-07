@@ -58,7 +58,7 @@ public class SandCrabsScript extends TaskScript {
     public static final int MAX_NO_COMBAT_SECONDS = 12;
     public static final long WORLD_HOP_COOLDOWN_MS = 10000;
     public static final long DORMANT_WARNING_DELAY_MS = 5 * 60 * 1000;
-    public static final long SPOT_CRASH_THRESHOLD_MS = 10000;
+    public static final long SPOT_CRASH_THRESHOLD_MS = 4000;
 
     public static final String MODE_WITHIN_RANGE = "Keep Within Range";
     public static final String MODE_ON_LIMIT = "When Limit Reached";

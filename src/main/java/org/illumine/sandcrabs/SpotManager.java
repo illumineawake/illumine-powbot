@@ -54,13 +54,12 @@ public class SpotManager {
     }
 
     public boolean isSpotOccupied(Tile spot) {
-        Player local = Players.local();
         if (spot == null) {
             return true;
         }
         return Players.stream()
                 .within(spot, 3)
-                .filtered(player -> !player.equals(local))
+                .notLocalPlayer()
                 .first()
                 .valid();
     }

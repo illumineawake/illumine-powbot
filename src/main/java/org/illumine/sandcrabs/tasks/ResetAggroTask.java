@@ -57,7 +57,7 @@ public class ResetAggroTask extends SandCrabsTask {
         }
 
         context.spotManager().setCurrentSpot(target);
-        travelToSpot(target);
+        Movement.moveTo(target);
         context.combatMonitor().rollNextNoCombatThreshold();
     }
 
@@ -103,16 +103,5 @@ public class ResetAggroTask extends SandCrabsTask {
         }
 
         return chooseNearest(available, Players.local().tile());
-    }
-
-    private void travelToSpot(Tile target) {
-        Movement.moveTo(target);
-        boolean arrived = Condition.wait(() -> Players.local().tile().equals(target), 200, 25);
-        if (arrived || Players.local().tile().equals(target)) {
-            return;
-        }
-
-        Movement.step(target);
-        Condition.wait(() -> Players.local().tile().equals(target), 200, 10);
     }
 }
