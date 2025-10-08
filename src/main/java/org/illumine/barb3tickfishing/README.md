@@ -11,6 +11,7 @@ Features
 - Auto-cleans grimy herbs; detects missing Swamp tar/herb; 
 - Optional fallback to normal fishing when out of 3T supplies (or stop if disabled)
 - Smart tactics to try prevent creating Guam Tar including integration with Powbot breaking when appropriate
+- Randomised world hopping for additional anti-ban. Adheres to current country.
 - Paint: tracks Fishing/Agility/Strength and shows mode, 3T frequency, share of time spent 3T, and time to next fishing mode switch
 - Note: In-game setting must have Minimenu long-press time set to 100ms to let 3Tick Fishing work.
 

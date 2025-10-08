@@ -16,6 +16,7 @@ import org.powbot.api.script.ValueChanged;
 import org.powbot.api.script.paint.PaintBuilder;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -44,6 +45,19 @@ import java.util.Locale;
         optionType = OptionType.BOOLEAN,
         defaultValue = "true",
         visible = true
+)
+@ScriptConfiguration(
+        name = "Allow World Hopping",
+        description = "Enable timed world hopping",
+        optionType = OptionType.BOOLEAN,
+        defaultValue = "false"
+)
+@ScriptConfiguration(
+        name = "World Hop every X minutes",
+        description = "Minutes between world hops",
+        optionType = OptionType.INTEGER,
+        defaultValue = "10",
+        visible = false
 )
 @ScriptManifest(
         name = "illu 3T Barb Fishing",
@@ -116,10 +130,22 @@ public class Barb3TickFishingScript extends AbstractScript {
     private boolean switchToNormalOnSuppliesOut = true;
     private boolean suppliesFallbackTriggered = false;
 
+    private boolean hopEnabled = false;
+    private int hopIntervalMinutes = 10;
+    private long nextHopAtMs = 0L;
+    private boolean shouldHop = false;
+    private int currentWorldId = -1;
+    private World.Server homeServer = null;
+
     public Barb3TickFishingScript() {
         try {
             ThreeTickFrequencyMode initialMode = ThreeTickFrequencyMode.fromOptionString(asString(getOption("3Tick Frequency Mode"), ThreeTickFrequencyMode.SOMETIMES.label()));
             applyOptionVisibility(initialMode);
+        } catch (Exception ignored) {
+        }
+        try {
+            boolean initialHopEnabled = asBoolean(getOption("Allow World Hopping"), false);
+            applyHopOptionVisibility(initialHopEnabled);
         } catch (Exception ignored) {
         }
     }
@@ -165,6 +191,16 @@ public class Barb3TickFishingScript extends AbstractScript {
             modeExpiresAtMs = 0L;
         }
         switchQueued = false;
+        hopEnabled = asBoolean(getOption("Allow World Hopping"), false);
+        hopIntervalMinutes = asInt(getOption("World Hop every X minutes"), 10, 1);
+        applyHopOptionVisibility(hopEnabled);
+        currentWorldId = resolveCurrentWorldId();
+        homeServer = resolveCurrentServer();
+        if (hopEnabled) {
+            scheduleNextHop();
+        } else {
+            clearHopSchedule();
+        }
         addPaint(PaintBuilder.newBuilder()
                 .x(20)
                 .y(40)
@@ -175,6 +211,8 @@ public class Barb3TickFishingScript extends AbstractScript {
                 .addString("3T Frequency: ", () -> frequencyMode.label())
                 .addString("Time(%) Spent 3Tick Fishing: ", this::formatThreeTickShare)
                 .addString("Switching fishing mode in: ", this::formatSwitchCountdown)
+                .addString("World: ", this::formatCurrentWorld)
+                .addString("Next Hop: ", this::formatTimeToHop)
                 .build());
         // Initialize tick cycle
         targetSpotTile = null;
@@ -182,7 +220,8 @@ public class Barb3TickFishingScript extends AbstractScript {
         nextAction = NextAction.CLICK_SPOT;
         actionGateGT = -1;
         tickCount = 0;
-        if (Camera.getZoom() > 0) {
+        if (Camera.getZoom() > 1) {
+            logOnce("Camera", "Current Zoom level is: " + Camera.getZoom());
             Camera.moveZoomSlider(0);
             Condition.sleep(Random.nextInt(500, 2000));
         }
@@ -218,6 +257,11 @@ public class Barb3TickFishingScript extends AbstractScript {
         herbName = DEFAULT_HERB_NAME;
         switchToNormalOnSuppliesOut = true;
         suppliesFallbackTriggered = false;
+        clearHopSchedule();
+        hopEnabled = false;
+        hopIntervalMinutes = 10;
+        currentWorldId = -1;
+        homeServer = null;
     }
 
     @Override
@@ -228,6 +272,9 @@ public class Barb3TickFishingScript extends AbstractScript {
     @Override
     public void poll() {
         long now = System.currentTimeMillis();
+        if (hopEnabled && nextHopAtMs > 0L && now >= nextHopAtMs) {
+            shouldHop = true;
+        }
         if (switchingEnabled && !switchQueued && modeExpiresAtMs > 0 && now >= modeExpiresAtMs) {
             switchQueued = true;
             dbgSched("mode", "Mode switch queued");
@@ -237,6 +284,12 @@ public class Barb3TickFishingScript extends AbstractScript {
         if (!coreMissing.isBlank()) {
             logOnce("Stopping", "Missing item " + coreMissing);
             getController().stop();
+            return;
+        }
+
+        if (shouldHop && canWorldHop()) {
+            performWorldHop();
+            scheduleNextHop();
             return;
         }
 
@@ -359,6 +412,47 @@ public class Barb3TickFishingScript extends AbstractScript {
         return fallback;
     }
 
+    private boolean asBoolean(Object value, boolean fallback) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            String s = ((String) value).trim();
+            if (s.isEmpty()) {
+                return fallback;
+            }
+            return Boolean.parseBoolean(s);
+        }
+        if (value != null) {
+            String s = value.toString().trim();
+            if (!s.isEmpty()) {
+                return Boolean.parseBoolean(s);
+            }
+        }
+        return fallback;
+    }
+
+    private int asInt(Object value, int fallback, int minValue) {
+        int parsed = fallback;
+        if (value instanceof Number) {
+            parsed = ((Number) value).intValue();
+        } else if (value instanceof String) {
+            try {
+                parsed = Integer.parseInt(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        } else if (value != null) {
+            try {
+                parsed = Integer.parseInt(value.toString().trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (parsed < minValue) {
+            parsed = minValue;
+        }
+        return parsed;
+    }
+
     private String resolveHerbNameOption() {
         return asString(getOption("Clean Herb Name"), DEFAULT_HERB_NAME);
     }
@@ -471,6 +565,10 @@ public class Barb3TickFishingScript extends AbstractScript {
         updateVisibility("Clean Herb Name", showThreeTickOptions);
     }
 
+    private void applyHopOptionVisibility(boolean enabled) {
+        updateVisibility("World Hop every X minutes", enabled);
+    }
+
     private long rollThreeTickDurationMs() {
         switch (frequencyMode) {
             case ALWAYS:
@@ -505,6 +603,27 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
         long duration = tickFishing ? rollThreeTickDurationMs() : rollNormalDurationMs();
         modeExpiresAtMs = System.currentTimeMillis() + duration;
+    }
+
+    private long computeNextHopDueMs(int minutes) {
+        long baseMillis = Math.max(1, minutes) * 60_000L;
+        double factor = Random.nextDouble(0.85, 1.15);
+        return System.currentTimeMillis() + (long) (baseMillis * factor);
+    }
+
+    private void scheduleNextHop() {
+        if (!hopEnabled) {
+            clearHopSchedule();
+            return;
+        }
+        nextHopAtMs = computeNextHopDueMs(hopIntervalMinutes);
+        shouldHop = false;
+        dbgSched("hop", "Scheduled next hop in " + formatMs(nextHopAtMs - System.currentTimeMillis()));
+    }
+
+    private void clearHopSchedule() {
+        nextHopAtMs = 0L;
+        shouldHop = false;
     }
 
     private void setFishingMode(FishingMode mode) {
@@ -564,6 +683,23 @@ public class Barb3TickFishingScript extends AbstractScript {
         return formatMs(modeExpiresAtMs - System.currentTimeMillis());
     }
 
+    private String formatTimeToHop() {
+        if (!hopEnabled || nextHopAtMs <= 0L) {
+            return "—";
+        }
+        return formatMs(nextHopAtMs - System.currentTimeMillis());
+    }
+
+    private String formatCurrentWorld() {
+        if (currentWorldId <= 0) {
+            currentWorldId = resolveCurrentWorldId();
+        }
+        if (currentWorldId <= 0) {
+            return "—";
+        }
+        return "W" + currentWorldId;
+    }
+
     private String formatThreeTickShare() {
         if (startTimeMs <= 0) {
             return "0.0%";
@@ -609,6 +745,16 @@ public class Barb3TickFishingScript extends AbstractScript {
             return true;
         }
         return false;
+    }
+
+    private boolean canWorldHop() {
+        if (!hopEnabled) {
+            return false;
+        }
+        if (nextHopAtMs <= 0L || System.currentTimeMillis() < nextHopAtMs) {
+            return false;
+        }
+        return canBreak();
     }
 
     private void handleNormalMode() {
@@ -709,7 +855,7 @@ public class Barb3TickFishingScript extends AbstractScript {
         actionGateGT = tickCount;
         if (success) {
             nextAction = NextAction.DROP_ONE;
-            Condition.sleep(25);
+            Condition.sleep(Random.nextInt(20,35));
             handleDropOne();
         }
     }
@@ -718,20 +864,6 @@ public class Barb3TickFishingScript extends AbstractScript {
         nextAction = NextAction.CLICK_SPOT;
         boolean success = dropOneLeapingFish();
         dbgExec("poll", "t=" + tickCount + " | drop one leaping=" + success);
-    }
-
-    private boolean pickupFish() {
-        if (Inventory.isFull()) {
-            return false;
-        }
-
-        GroundItem floorFish = GroundItems.stream().nameContains("Leaping").within(1).first();
-
-        if (floorFish.valid()) {
-            return floorFish.interact("Take");
-        }
-
-        return false;
     }
 
     // Attempts to move to a neighbouring tile (not current tile) to cancel item mixing.
@@ -767,6 +899,96 @@ public class Barb3TickFishingScript extends AbstractScript {
         return false;
     }
 
+    private boolean attemptHop(World target) {
+        if (target == null || !target.valid()) {
+            return false;
+        }
+        boolean hopped = target.hop();
+        if (!hopped) {
+            dbgExec("hop", "Failed to initiate hop to world " + target.id());
+            return false;
+        }
+        Condition.wait(() -> !Game.loggedIn(), 200, 25);
+        boolean relogged = Condition.wait(Game::loggedIn, 200, 40);
+        if (!relogged) {
+            dbgExec("hop", "Login confirmation timed out for world " + target.id());
+            return false;
+        }
+        currentWorldId = target.id();
+        World.Server server = target.server();
+        if (server != null) {
+            homeServer = server;
+        }
+        targetSpotTile = null;
+        currentFishSpot = null;
+        lastSpotSource = "";
+        nextAction = NextAction.CLICK_SPOT;
+        actionGateGT = tickCount;
+        return true;
+    }
+
+    private boolean performWorldHop() {
+        World current = resolveCurrentWorld();
+        if (!current.valid()) {
+            dbgExec("hop", "Unable to resolve current world before hop");
+            return false;
+        }
+        currentWorldId = current.id();
+        homeServer = current.server();
+
+        List<World> candidates = new ArrayList<>(Worlds.stream()
+                .filtered(World::valid)
+                .filtered(world -> world.id() != current.id())
+                .filtered(world -> world.type() == World.Type.MEMBERS)
+                .filtered(world -> world.specialty() == World.Specialty.NONE)
+                .filtered(world -> world.server() == homeServer)
+                .list());
+        if (candidates.isEmpty()) {
+            dbgExec("hop", "No eligible worlds found for server " + homeServer);
+            return false;
+        }
+        Collections.shuffle(candidates);
+        int attempts = 0;
+        for (World candidate : candidates) {
+            if (!candidate.valid()) {
+                continue;
+            }
+            if (attemptHop(candidate)) {
+                dbgExec("hop", "Switched to world " + candidate.id());
+                return true;
+            }
+            attempts++;
+            if (attempts >= 2) {
+                break;
+            }
+        }
+        dbgExec("hop", "Hop attempts failed");
+        return false;
+    }
+
+    private World resolveCurrentWorld() {
+        return Worlds.current();
+    }
+
+    private int resolveCurrentWorldId() {
+        World current = resolveCurrentWorld();
+        if (current.valid()) {
+            currentWorldId = current.id();
+        }
+        return currentWorldId;
+    }
+
+    private World.Server resolveCurrentServer() {
+        World current = resolveCurrentWorld();
+        World.Server server = (current.valid()) ? current.server() : null;
+        if (server != null) {
+            homeServer = server;
+        }
+        return server;
+    }
+
+    // Reflection-based current world detection removed in favor of Worlds.current().
+
     private boolean hasLevelRequirements() {
         return Skill.Fishing.realLevel() >= 48 &&
                 Skill.Strength.realLevel() >= 15 &&
@@ -786,6 +1008,26 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
         String trimmed = newValue.trim();
         herbName = trimmed.isEmpty() ? DEFAULT_HERB_NAME : trimmed;
+    }
+
+    @ValueChanged(keyName = "Allow World Hopping")
+    public void onAllowWorldHoppingOptionChanged(Boolean enabled) {
+        hopEnabled = Boolean.TRUE.equals(enabled);
+        applyHopOptionVisibility(hopEnabled);
+        if (hopEnabled) {
+            hopIntervalMinutes = asInt(getOption("World Hop every X minutes"), hopIntervalMinutes, 1);
+            scheduleNextHop();
+        } else {
+            clearHopSchedule();
+        }
+    }
+
+    @ValueChanged(keyName = "World Hop every X minutes")
+    public void onWorldHopIntervalChanged(Integer minutes) {
+        hopIntervalMinutes = asInt(minutes, hopIntervalMinutes, 1);
+        if (hopEnabled) {
+            scheduleNextHop();
+        }
     }
 
 }
