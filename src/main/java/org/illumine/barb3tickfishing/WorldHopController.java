@@ -181,10 +181,7 @@ class WorldHopController {
             return false;
         }
         currentWorldId = target.id();
-        World.Server server = target.server();
-        if (server != null) {
-            homeServer = server;
-        }
+        homeServer = target.server();;
         script.onWorldHopSuccess();
         return true;
     }

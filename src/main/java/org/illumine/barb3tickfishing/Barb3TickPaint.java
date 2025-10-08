@@ -18,7 +18,7 @@ class Barb3TickPaint {
                 .trackSkill(Skill.Agility)
                 .trackSkill(Skill.Strength)
                 .addString("Mode: ", () -> script.isTickFishing() ? "3Tick Fishing" : "Normal Fishing")
-                .addString("3T Frequency: ", () -> script.getConfig().frequencyMode().label())
+                .addString("3T Frequency: ", script::getFrequencyDisplay)
                 .addString("Time(%) Spent 3Tick Fishing: ", script::formatThreeTickShare)
                 .addString("Switching fishing mode in: ", script::formatSwitchCountdown)
                 .addString("World: ", script.getWorldHopController()::formatCurrentWorld)

@@ -34,7 +34,8 @@ import java.util.Locale;
                 "Always 3Tick (VERY DANGEROUS!)",
                 "Mostly 3Tick",
                 "Sometimes 3Tick",
-                "Never 3Tick"
+                "Never 3Tick",
+                "Random"
         }
 )
 @ScriptConfiguration(
@@ -178,8 +179,8 @@ public class Barb3TickFishingScript extends AbstractScript {
 
         worldHopController.updateHopDue(now);
 
-        if (config.switchingEnabled() && !modeScheduler.switchQueued() && modeScheduler.modeExpiresAtMs() > 0 && now >= modeScheduler.modeExpiresAtMs()) {
-            modeScheduler.queueSwitch();
+        if (!modeScheduler.switchQueued() && modeScheduler.modeExpiresAtMs() > 0 && now >= modeScheduler.modeExpiresAtMs()) {
+            modeScheduler.onWindowExpired();
         }
 
         String coreMissing = missingCoreItem();
@@ -320,6 +321,16 @@ public class Barb3TickFishingScript extends AbstractScript {
         return Barb3TickPaint.formatMs(modeScheduler.modeExpiresAtMs() - System.currentTimeMillis());
     }
 
+    String getFrequencyDisplay() {
+        if (config.frequencyMode() == ThreeTickFrequencyMode.RANDOM) {
+            ThreeTickFrequencyMode profile = modeScheduler.activeRandomProfile();
+            String current = modeScheduler.tickFishing() ? "3T" : "Normal";
+            String prof = (profile == null) ? "—" : profile.shortLabel();
+            return "Random(" + current + " " + prof + ")";
+        }
+        return config.frequencyMode().label();
+    }
+
     String formatThreeTickShare() {
         if (startTimeMs <= 0) {
             return "0.0%";
@@ -425,8 +436,7 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
 
         Player local = Players.local();
-        boolean currentlyAnimating = local != null && local.animation() != -1;
-        if (currentlyAnimating && currentFishSpot != null && currentFishSpot.valid()) {
+        if (local.animation() != -1 && currentFishSpot != null && currentFishSpot.valid()) {
             return;
         }
 
