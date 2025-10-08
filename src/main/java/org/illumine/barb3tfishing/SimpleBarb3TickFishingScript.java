@@ -33,10 +33,18 @@ import java.util.Locale;
         }
 )
 @ScriptConfiguration(
+        name = "Clean Herb Name",
+        description = "Clean herb used for 3-tick method",
+        optionType = OptionType.STRING,
+        defaultValue = "Guam leaf",
+        visible = true
+)
+@ScriptConfiguration(
         name = "Switch to normal fishing if out of 3Tick supplies",
         description = "Fallback to normal mode when 3-tick supplies run out",
         optionType = OptionType.BOOLEAN,
-        defaultValue = "true"
+        defaultValue = "true",
+        visible = true
 )
 @ScriptManifest(
         name = "Simple Barb 3T",
@@ -46,7 +54,7 @@ import java.util.Locale;
         version = "0.0.1"
 )
 public class SimpleBarb3TickFishingScript extends AbstractScript {
-    private static final String HERB_NAME = "Guam leaf";
+    private static final String DEFAULT_HERB_NAME = "Guam leaf";
 
     private Tile targetSpotTile = null;
     private Npc currentFishSpot = null;
@@ -105,8 +113,17 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private long startTimeMs = 0L;
     private long currentModeEnteredAtMs = 0L;
     private long threeTickAccumulatedMs = 0L;
+    private String herbName = DEFAULT_HERB_NAME;
     private boolean switchToNormalOnSuppliesOut = true;
     private boolean suppliesFallbackTriggered = false;
+
+    public SimpleBarb3TickFishingScript() {
+        try {
+            ThreeTickFrequencyMode initialMode = ThreeTickFrequencyMode.fromOptionString(asString(getOption("3Tick Frequency Mode"), ThreeTickFrequencyMode.SOMETIMES.label()));
+            applyOptionVisibility(initialMode);
+        } catch (Exception ignored) {
+        }
+    }
 
     @Override
     public void onStart() {
@@ -128,6 +145,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         switchingEnabled = frequencyMode.switchingEnabled();
         fishingMode = frequencyMode.startsInThreeTick() ? FishingMode.THREE_TICK : FishingMode.NORMAL;
         tickFishing = fishingMode == FishingMode.THREE_TICK;
+        herbName = resolveHerbNameOption();
         Object fallbackOption = getOption("Switch to normal fishing if out of 3Tick supplies");
         if (fallbackOption instanceof Boolean) {
             switchToNormalOnSuppliesOut = (Boolean) fallbackOption;
@@ -137,7 +155,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             switchToNormalOnSuppliesOut = true;
         }
         suppliesFallbackTriggered = false;
-        applyFallbackToggleVisibility(frequencyMode);
+        applyOptionVisibility(frequencyMode);
         long now = System.currentTimeMillis();
         startTimeMs = now;
         currentModeEnteredAtMs = now;
@@ -198,6 +216,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         startTimeMs = 0L;
         currentModeEnteredAtMs = 0L;
         threeTickAccumulatedMs = 0L;
+        herbName = DEFAULT_HERB_NAME;
         switchToNormalOnSuppliesOut = true;
         suppliesFallbackTriggered = false;
     }
@@ -327,12 +346,30 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         return "";
     }
 
+    private String asString(Object value, String fallback) {
+        if (value instanceof String) {
+            String s = ((String) value).trim();
+            return s.isEmpty() ? fallback : s;
+        }
+        if (value != null) {
+            String s = value.toString().trim();
+            if (!s.isEmpty()) {
+                return s;
+            }
+        }
+        return fallback;
+    }
+
+    private String resolveHerbNameOption() {
+        return asString(getOption("Clean Herb Name"), DEFAULT_HERB_NAME);
+    }
+
     private boolean hasThreeTickSuppliesAvailable() {
         return hasItem("Swamp tar") && canObtainCleanHerb();
     }
 
     private boolean canObtainCleanHerb() {
-        if (hasItem(HERB_NAME)) {
+        if (hasItem(herbName)) {
             return true;
         }
         Item cleanable = Inventory.stream().nameContains("Grimy").action("Clean").first();
@@ -344,7 +381,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             return "Swamp tar";
         }
         if (!canObtainCleanHerb()) {
-            return HERB_NAME;
+            return herbName;
         }
         return "";
     }
@@ -362,12 +399,12 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             handleOutOfThreeTickSupplies("Swamp tar");
             return false;
         }
-        if (!hasItem(HERB_NAME)) {
+        if (!hasItem(herbName)) {
             if (attemptClean && cleanHerb()) {
                 Condition.sleep(Random.nextInt(200, 3000));
                 return false;
             }
-            handleOutOfThreeTickSupplies(HERB_NAME);
+            handleOutOfThreeTickSupplies(herbName);
             return false;
         }
         return true;
@@ -397,7 +434,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         frequencyMode = ThreeTickFrequencyMode.NEVER;
         switchingEnabled = false;
         switchQueued = false;
-        applyFallbackToggleVisibility(frequencyMode);
+        applyOptionVisibility(frequencyMode);
         setFishingMode(FishingMode.NORMAL);
         modeExpiresAtMs = 0L;
         nextAction = NextAction.CLICK_SPOT;
@@ -429,8 +466,10 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         getLog().info("[SimpleBarb3T][EXEC] t=" + tickCount + " | " + category + " | " + message);
     }
 
-    private void applyFallbackToggleVisibility(ThreeTickFrequencyMode mode) {
-        updateVisibility("Switch to normal fishing if out of 3Tick supplies", mode != ThreeTickFrequencyMode.NEVER);
+    private void applyOptionVisibility(ThreeTickFrequencyMode mode) {
+        boolean showThreeTickOptions = mode != ThreeTickFrequencyMode.NEVER;
+        updateVisibility("Switch to normal fishing if out of 3Tick supplies", showThreeTickOptions);
+        updateVisibility("Clean Herb Name", showThreeTickOptions);
     }
 
     private long rollThreeTickDurationMs() {
@@ -689,7 +728,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             return;
         }
         dbgExec("poll", "t=" + tickCount + " | combine herb: attempt");
-        Item herb = Inventory.stream().name(HERB_NAME).first();
+        Item herb = Inventory.stream().name(herbName).first();
         boolean success = herb.valid() && herb.click();
         dbgExec("poll", "t=" + tickCount + " | combine herb: " + success);
         actionGateGT = tickCount;
@@ -760,9 +799,18 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     }
 
     @ValueChanged(keyName = "3Tick Frequency Mode")
-    private void onFrequencyModeOptionChanged(String newValue) {
+    public void onFrequencyModeOptionChanged(String newValue) {
         ThreeTickFrequencyMode mode = ThreeTickFrequencyMode.fromOptionString(newValue);
-        applyFallbackToggleVisibility(mode);
+        applyOptionVisibility(mode);
+    }
+
+    @ValueChanged(keyName = "Clean Herb Name")
+    private void onHerbNameOptionChanged(String newValue) {
+        if (newValue == null) {
+            return;
+        }
+        String trimmed = newValue.trim();
+        herbName = trimmed.isEmpty() ? DEFAULT_HERB_NAME : trimmed;
     }
 
 }
