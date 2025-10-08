@@ -1,4 +1,4 @@
-package org.illumine.barb3tfishing;
+package org.illumine.barb3tickfishing;
 
 import com.google.common.eventbus.Subscribe;
 import org.powbot.api.Condition;
@@ -16,7 +16,6 @@ import org.powbot.api.script.ValueChanged;
 import org.powbot.api.script.paint.PaintBuilder;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -47,13 +46,13 @@ import java.util.Locale;
         visible = true
 )
 @ScriptManifest(
-        name = "Simple Barb 3T",
-        description = "Barebones 3-tick barbarian fishing using Guam leaf + Swamp tar",
+        name = "illu 3T Barb Fishing",
+        description = "3-tick barbarian fishing using herb + Swamp tar. Your Settings in game must be set to 100ms hold for menu pop-up.",
         author = "illumine",
         category = ScriptCategory.Fishing,
         version = "0.0.1"
 )
-public class SimpleBarb3TickFishingScript extends AbstractScript {
+public class Barb3TickFishingScript extends AbstractScript {
     private static final String DEFAULT_HERB_NAME = "Guam leaf";
 
     private Tile targetSpotTile = null;
@@ -117,7 +116,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private boolean switchToNormalOnSuppliesOut = true;
     private boolean suppliesFallbackTriggered = false;
 
-    public SimpleBarb3TickFishingScript() {
+    public Barb3TickFishingScript() {
         try {
             ThreeTickFrequencyMode initialMode = ThreeTickFrequencyMode.fromOptionString(asString(getOption("3Tick Frequency Mode"), ThreeTickFrequencyMode.SOMETIMES.label()));
             applyOptionVisibility(initialMode);
@@ -651,40 +650,16 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         if (leapingFish.isEmpty()) {
             return;
         }
-
+        Condition.sleep(Random.nextInt(200, 3000));
         Inventory.open();
-
-        int roll = Random.nextInt(0, 100);
-        if (roll < 34) {
-            Inventory.enableShiftDropping();
-            Inventory.drop(leapingFish);
-        } else if (roll < 67) {
-            Collections.shuffle(leapingFish);
-            for (Item fish : leapingFish) {
-                if (!fish.valid()) {
-                    continue;
-                }
-                Inventory.drop(fish, false);
-                Condition.sleep(Random.nextInt(50, 180));
-            }
-        } else {
-            Collections.shuffle(leapingFish);
-            boolean shiftEnabled = Inventory.shiftDroppingEnabled() || Inventory.enableShiftDropping();
-            for (Item fish : leapingFish) {
-                if (!fish.valid()) {
-                    continue;
-                }
-                boolean useShift = shiftEnabled && Random.nextBoolean();
-                Inventory.drop(fish, useShift);
-                Condition.sleep(Random.nextInt(60, 200));
-            }
-        }
+        Inventory.enableShiftDropping();
+        Inventory.drop(leapingFish);
         Inventory.disableShiftDropping();
-        Condition.sleep(Random.nextInt(200, 600));
+        Condition.sleep(Random.nextInt(200, 3000));
     }
 
     public static void main(String[] args) {
-        new SimpleBarb3TickFishingScript().startScript();
+        new Barb3TickFishingScript().startScript();
     }
 
     private void handleClickSpot() {
