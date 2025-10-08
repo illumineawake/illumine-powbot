@@ -1,9 +1,10 @@
 package org.illumine.testscript;
 
 import org.powbot.api.Condition;
-import org.powbot.api.rt4.*;
+import org.powbot.api.rt4.Npc;
+import org.powbot.api.rt4.Npcs;
+import org.powbot.api.rt4.Players;
 import org.powbot.api.script.*;
-import org.powbot.mobile.service.ScriptUploader;
 
 // Example of GUI option which asks for a string
 @ScriptConfiguration(name = "NPC", description = "NPC to fight", optionType = OptionType.STRING)

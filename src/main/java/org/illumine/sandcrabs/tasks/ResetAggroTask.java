@@ -1,8 +1,8 @@
 package org.illumine.sandcrabs.tasks;
 
+import org.illumine.sandcrabs.SandCrabSpots;
 import org.illumine.sandcrabs.SandCrabsContext;
 import org.illumine.sandcrabs.SandCrabsScript;
-import org.illumine.sandcrabs.SandCrabSpots;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;

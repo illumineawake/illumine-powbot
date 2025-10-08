@@ -6,11 +6,6 @@ import org.powbot.api.Condition;
 import org.powbot.api.Tile;
 import org.powbot.api.rt4.*;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 public class BankAndStopTask extends SandCrabsTask {
 
     private static final String STATUS = "Restocking supplies";

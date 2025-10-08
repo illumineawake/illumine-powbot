@@ -3,9 +3,11 @@ package org.illumine.templatetask;
 import org.illumine.taskscript.Task;
 import org.illumine.taskscript.TaskScript;
 import org.illumine.templatetask.tasks.TemplateHeartbeatTask;
-import org.powbot.api.script.*;
+import org.powbot.api.script.OptionType;
+import org.powbot.api.script.ScriptCategory;
+import org.powbot.api.script.ScriptConfiguration;
+import org.powbot.api.script.ScriptManifest;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @ScriptConfiguration(name = "Enable Heartbeat", description = "Log idle heartbeat every ~2s", optionType = OptionType.BOOLEAN)

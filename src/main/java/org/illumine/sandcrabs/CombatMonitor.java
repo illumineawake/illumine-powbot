@@ -2,12 +2,7 @@ package org.illumine.sandcrabs;
 
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
-import org.powbot.api.rt4.Actor;
-import org.powbot.api.rt4.Npc;
-import org.powbot.api.rt4.Npcs;
-import org.powbot.api.rt4.Player;
-import org.powbot.api.rt4.Players;
-import org.powbot.api.rt4.Skills;
+import org.powbot.api.rt4.*;
 import org.powbot.api.rt4.walking.model.Skill;
 
 import java.util.logging.Logger;

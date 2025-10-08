@@ -1,21 +1,16 @@
 package org.illumine.barb3tfishing;
 
+import com.google.common.eventbus.Subscribe;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
-import org.powbot.api.event.NpcAnimationChangedEvent;
-import org.powbot.api.rt4.*;
 import org.powbot.api.Tile;
-import org.powbot.api.rt4.stream.item.ItemStream;
+import org.powbot.api.event.TickEvent;
+import org.powbot.api.rt4.*;
 import org.powbot.api.rt4.walking.model.Skill;
 import org.powbot.api.script.AbstractScript;
 import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptManifest;
-import com.google.common.eventbus.Subscribe;
-import org.powbot.api.event.TickEvent;
 import org.powbot.api.script.paint.PaintBuilder;
-import org.powbot.mobile.script.ScriptManager;
-
-import java.util.List;
 
 @ScriptManifest(
         name = "Simple Barb 3T",
@@ -139,12 +134,14 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             logOnce("spot", "No fishing spot found");
             return false;
         }
-
-        if (!currentFishSpot.inViewport()) {
-            return false;
-        }
         // Lock/refresh the target to this spot's tile
         targetSpotTile = currentFishSpot.tile();
+
+        if (targetSpotTile.distanceTo(Players.local()) >= 5) {
+            logOnce("spot", "Moved far away, moving to it.");
+            return false;
+        }
+
         dbgExec("clicking_spot", "id=" + currentFishSpot.id() + ", source=" + lastSpotSource + ", tile=" + targetSpotTile);
         boolean ok = currentFishSpot.interact("Use-rod", false);
         if (!ok) {
@@ -234,18 +231,14 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         dbgExec("poll", "t=" + tickCount + " | click spot: attempt");
         boolean success = clickFishingSpot();
         dbgExec("poll", "t=" + tickCount + " | click spot: " + (success ? "success" : "failed"));
-        actionGateGT = tickCount;
         if (success) {
+            actionGateGT = tickCount;
             nextAction = NextAction.SELECT_TAR;
-        } else if (Players.local().animation() != -1) {
-            if (!currentFishSpot.valid() || currentFishSpot == null) {
-                stepToAdjacentTile();
-                Condition.sleep(Random.nextInt(1000, 5000));
-            } else {
-                Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5);
-            }
-        } else if (currentFishSpot != null && currentFishSpot.valid() && !currentFishSpot.inViewport()) {
-            Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5);
+        } else if (Players.local().animation() != -1 && !currentFishSpot.valid()) {
+            stepToAdjacentTile();
+            Condition.sleep(Random.nextInt(1000, 5000));
+        } else {
+            Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5).move();
         }
     }
 
@@ -281,9 +274,9 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     }
 
     private void handleDropOne() {
+        nextAction = NextAction.CLICK_SPOT;
         boolean success = dropOneLeapingFish();
         dbgExec("poll", "t=" + tickCount + " | drop one leaping=" + success);
-        nextAction = NextAction.CLICK_SPOT;
     }
 
     private boolean pickupFish() {

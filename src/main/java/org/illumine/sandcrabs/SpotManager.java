@@ -3,11 +3,7 @@ package org.illumine.sandcrabs;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.Tile;
-import org.powbot.api.rt4.Game;
-import org.powbot.api.rt4.Player;
-import org.powbot.api.rt4.Players;
-import org.powbot.api.rt4.World;
-import org.powbot.api.rt4.Worlds;
+import org.powbot.api.rt4.*;
 
 import java.util.ArrayList;
 import java.util.Comparator;

@@ -2,17 +2,11 @@ package org.illumine.sandcrabs;
 
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
-import org.powbot.api.rt4.Bank;
-import org.powbot.api.rt4.Combat;
-import org.powbot.api.rt4.Inventory;
-import org.powbot.api.rt4.Item;
-import org.powbot.api.rt4.Skills;
+import org.powbot.api.rt4.*;
 import org.powbot.api.rt4.walking.model.Skill;
 
 import java.util.EnumMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.logging.Logger;
 
 /**

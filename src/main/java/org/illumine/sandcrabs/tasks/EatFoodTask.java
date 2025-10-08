@@ -5,7 +5,6 @@ import org.illumine.sandcrabs.SandCrabsScript;
 import org.powbot.api.Condition;
 import org.powbot.api.Random;
 import org.powbot.api.rt4.Combat;
-import org.powbot.api.rt4.Inventory;
 import org.powbot.api.rt4.Item;
 
 public class EatFoodTask extends SandCrabsTask {
