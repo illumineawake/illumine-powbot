@@ -62,10 +62,9 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         tickCount = 0;
         if (Camera.getZoom() > 0) {
             Camera.moveZoomSlider(0);
+            Condition.sleep(Random.nextInt(500, 2000));
         }
-        if (!Inventory.opened()) {
-            Inventory.open();
-        }
+        Inventory.open();
         dbgSched("init", "initialized");
     }
 
@@ -98,12 +97,11 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
 
         if (!hasItem(HERB_NAME)) {
             if (cleanHerb()) {
-                Condition.sleep(Random.nextInt(200, 1000));
-                return;
+                Condition.sleep(Random.nextInt(200, 3000));
             } else {
                 logOnce("Stopping", "Missing clean herb in inventory");
-                return;
             }
+            return;
         }
 
         switch (nextAction) {
@@ -240,12 +238,14 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         if (success) {
             nextAction = NextAction.SELECT_TAR;
         } else if (Players.local().animation() != -1) {
-//            if (!pickupFish()) {
-            stepToAdjacentTile();
-            Condition.sleep(600);
-//            }
-        } else if (currentFishSpot != null && !currentFishSpot.inViewport()) {
-            Camera.turnTo(currentFishSpot);
+            if (!currentFishSpot.valid() || currentFishSpot == null) {
+                stepToAdjacentTile();
+                Condition.sleep(Random.nextInt(1000, 5000));
+            } else {
+                Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5);
+            }
+        } else if (currentFishSpot != null && currentFishSpot.valid() && !currentFishSpot.inViewport()) {
+            Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5);
         }
     }
 
