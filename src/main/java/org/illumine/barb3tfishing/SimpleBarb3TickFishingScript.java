@@ -10,8 +10,9 @@ import org.powbot.api.rt4.walking.model.Skill;
 import org.powbot.api.script.AbstractScript;
 import org.powbot.api.script.OptionType;
 import org.powbot.api.script.ScriptCategory;
-import org.powbot.api.script.ScriptManifest;
 import org.powbot.api.script.ScriptConfiguration;
+import org.powbot.api.script.ScriptManifest;
+import org.powbot.api.script.ValueChanged;
 import org.powbot.api.script.paint.PaintBuilder;
 
 import java.util.ArrayList;
@@ -30,6 +31,12 @@ import java.util.Locale;
                 "Sometimes 3Tick",
                 "Never 3Tick"
         }
+)
+@ScriptConfiguration(
+        name = "Switch to normal fishing if out of 3Tick supplies",
+        description = "Fallback to normal mode when 3-tick supplies run out",
+        optionType = OptionType.BOOLEAN,
+        defaultValue = "true"
 )
 @ScriptManifest(
         name = "Simple Barb 3T",
@@ -98,6 +105,8 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private long startTimeMs = 0L;
     private long currentModeEnteredAtMs = 0L;
     private long threeTickAccumulatedMs = 0L;
+    private boolean switchToNormalOnSuppliesOut = true;
+    private boolean suppliesFallbackTriggered = false;
 
     @Override
     public void onStart() {
@@ -119,6 +128,16 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         switchingEnabled = frequencyMode.switchingEnabled();
         fishingMode = frequencyMode.startsInThreeTick() ? FishingMode.THREE_TICK : FishingMode.NORMAL;
         tickFishing = fishingMode == FishingMode.THREE_TICK;
+        Object fallbackOption = getOption("Switch to normal fishing if out of 3Tick supplies");
+        if (fallbackOption instanceof Boolean) {
+            switchToNormalOnSuppliesOut = (Boolean) fallbackOption;
+        } else if (fallbackOption != null) {
+            switchToNormalOnSuppliesOut = Boolean.parseBoolean(fallbackOption.toString());
+        } else {
+            switchToNormalOnSuppliesOut = true;
+        }
+        suppliesFallbackTriggered = false;
+        applyFallbackToggleVisibility(frequencyMode);
         long now = System.currentTimeMillis();
         startTimeMs = now;
         currentModeEnteredAtMs = now;
@@ -137,8 +156,8 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
                 .trackSkill(Skill.Strength)
                 .addString("Mode: ", () -> tickFishing ? "3Tick Fishing" : "Normal Fishing")
                 .addString("3T Frequency: ", () -> frequencyMode.label())
-                .addString("Time (%) Spent 3Ticking: ", this::formatThreeTickShare)
-                .addString("Switch mode in: ", this::formatSwitchCountdown)
+                .addString("Time(%) Spent 3Tick Fishing: ", this::formatThreeTickShare)
+                .addString("Switching fishing mode in: ", this::formatSwitchCountdown)
                 .build());
         // Initialize tick cycle
         targetSpotTile = null;
@@ -179,6 +198,8 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         startTimeMs = 0L;
         currentModeEnteredAtMs = 0L;
         threeTickAccumulatedMs = 0L;
+        switchToNormalOnSuppliesOut = true;
+        suppliesFallbackTriggered = false;
     }
 
     @Override
@@ -194,27 +215,24 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             dbgSched("mode", "Mode switch queued");
         }
 
-        String missingItem = missingItem();
-
-        if (!missingItem.isBlank()) {
-            logOnce("Stopping", "Missing item" + missingItem);
+        String coreMissing = missingCoreItem();
+        if (!coreMissing.isBlank()) {
+            logOnce("Stopping", "Missing item " + coreMissing);
             getController().stop();
             return;
         }
 
         if (!tickFishing) {
+            if (switchingEnabled && !hasThreeTickSuppliesAvailable()) {
+                handleOutOfThreeTickSupplies(determineMissingThreeTickSupply());
+            }
             handleNormalMode();
             return;
         }
 
         Inventory.disableShiftDropping();
 
-        if (!hasItem(HERB_NAME)) {
-            if (cleanHerb()) {
-                Condition.sleep(Random.nextInt(200, 3000));
-            } else {
-                logOnce("Stopping", "Missing clean herb in inventory");
-            }
+        if (!ensureThreeTickSuppliesForActiveMode()) {
             return;
         }
 
@@ -299,19 +317,90 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         return nearest;
     }
 
-    private String missingItem() {
-        if (!hasItem("Swamp tar")) {
-            return "Swamp tar";
-        }
-
+    private String missingCoreItem() {
         if (!hasItem("Feather")) {
             return "Feather";
         }
-
         if (!hasItem("Barbarian rod")) {
             return "Barbarian rod";
         }
         return "";
+    }
+
+    private boolean hasThreeTickSuppliesAvailable() {
+        return hasItem("Swamp tar") && canObtainCleanHerb();
+    }
+
+    private boolean canObtainCleanHerb() {
+        if (hasItem(HERB_NAME)) {
+            return true;
+        }
+        Item cleanable = Inventory.stream().nameContains("Grimy").action("Clean").first();
+        return cleanable.valid();
+    }
+
+    private String determineMissingThreeTickSupply() {
+        if (!hasItem("Swamp tar")) {
+            return "Swamp tar";
+        }
+        if (!canObtainCleanHerb()) {
+            return HERB_NAME;
+        }
+        return "";
+    }
+
+    private boolean ensureThreeTickSuppliesForActiveMode() {
+        return ensureThreeTickSupplies(true);
+    }
+
+    private boolean ensureThreeTickSuppliesForUpcomingMode() {
+        return ensureThreeTickSupplies(true);
+    }
+
+    private boolean ensureThreeTickSupplies(boolean attemptClean) {
+        if (!hasItem("Swamp tar")) {
+            handleOutOfThreeTickSupplies("Swamp tar");
+            return false;
+        }
+        if (!hasItem(HERB_NAME)) {
+            if (attemptClean && cleanHerb()) {
+                Condition.sleep(Random.nextInt(200, 3000));
+                return false;
+            }
+            handleOutOfThreeTickSupplies(HERB_NAME);
+            return false;
+        }
+        return true;
+    }
+
+    private void handleOutOfThreeTickSupplies(String missingItem) {
+        if (suppliesFallbackTriggered) {
+            return;
+        }
+        if (missingItem == null || missingItem.isBlank()) {
+            missingItem = determineMissingThreeTickSupply();
+        }
+        if (missingItem.isBlank()) {
+            missingItem = "3T supplies";
+        }
+        if (!switchToNormalOnSuppliesOut) {
+            logOnce("Stopping", "Out of 3T supplies: " + missingItem);
+            getController().stop();
+            return;
+        }
+        logOnce("Fallback", "Out of 3T supplies (" + missingItem + "), switching to normal fishing");
+        switchToPermanentNormalMode();
+    }
+
+    private void switchToPermanentNormalMode() {
+        suppliesFallbackTriggered = true;
+        frequencyMode = ThreeTickFrequencyMode.NEVER;
+        switchingEnabled = false;
+        switchQueued = false;
+        applyFallbackToggleVisibility(frequencyMode);
+        setFishingMode(FishingMode.NORMAL);
+        modeExpiresAtMs = 0L;
+        nextAction = NextAction.CLICK_SPOT;
     }
 
     private boolean hasItem(String name) {
@@ -338,6 +427,10 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private void dbgExec(String category, String message) {
         if (getLog() == null || message == null) return;
         getLog().info("[SimpleBarb3T][EXEC] t=" + tickCount + " | " + category + " | " + message);
+    }
+
+    private void applyFallbackToggleVisibility(ThreeTickFrequencyMode mode) {
+        updateVisibility("Switch to normal fishing if out of 3Tick supplies", mode != ThreeTickFrequencyMode.NEVER);
     }
 
     private long rollThreeTickDurationMs() {
@@ -389,22 +482,26 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         dbgSched("mode", "Switched to " + (tickFishing ? "3Tick Fishing" : "Normal Fishing"));
     }
 
-    private void toggleMode() {
+    private boolean toggleMode() {
         if (!switchingEnabled) {
-            return;
+            return false;
+        }
+        boolean switchingToThreeTick = !tickFishing;
+        if (switchingToThreeTick && !ensureThreeTickSuppliesForUpcomingMode()) {
+            return false;
         }
         setFishingMode(tickFishing ? FishingMode.NORMAL : FishingMode.THREE_TICK);
+        return true;
     }
 
     private void consumeSwitchQueueAfterClick() {
         if (!switchQueued) {
             return;
         }
-        switchQueued = false;
-        if (!switchingEnabled) {
+        if (!toggleMode()) {
             return;
         }
-        toggleMode();
+        switchQueued = false;
         if (tickFishing) {
             nextAction = NextAction.SELECT_TAR;
         } else {
@@ -660,6 +757,12 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         return Skill.Fishing.realLevel() >= 48 &&
                 Skill.Strength.realLevel() >= 15 &&
                 Skill.Agility.realLevel() >= 15;
+    }
+
+    @ValueChanged(keyName = "3Tick Frequency Mode")
+    private void onFrequencyModeOptionChanged(String newValue) {
+        ThreeTickFrequencyMode mode = ThreeTickFrequencyMode.fromOptionString(newValue);
+        applyFallbackToggleVisibility(mode);
     }
 
 }
