@@ -8,14 +8,29 @@ import org.powbot.api.event.TickEvent;
 import org.powbot.api.rt4.*;
 import org.powbot.api.rt4.walking.model.Skill;
 import org.powbot.api.script.AbstractScript;
+import org.powbot.api.script.OptionType;
 import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptManifest;
+import org.powbot.api.script.ScriptConfiguration;
 import org.powbot.api.script.paint.PaintBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
+@ScriptConfiguration(
+        name = "3Tick Frequency Mode",
+        description = "How often to 3-tick",
+        optionType = OptionType.STRING,
+        defaultValue = "Sometimes 3Tick",
+        allowedValues = {
+                "Always 3Tick (VERY DANGEROUS!)",
+                "Mostly 3Tick",
+                "Sometimes 3Tick",
+                "Never 3Tick"
+        }
+)
 @ScriptManifest(
         name = "Simple Barb 3T",
         description = "Barebones 3-tick barbarian fishing using Guam leaf + Swamp tar",
@@ -33,6 +48,42 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
 
     private enum FishingMode {THREE_TICK, NORMAL}
 
+    private enum ThreeTickFrequencyMode {
+        ALWAYS("Always 3Tick (VERY DANGEROUS!)"),
+        MOSTLY("Mostly 3Tick"),
+        SOMETIMES("Sometimes 3Tick"),
+        NEVER("Never 3Tick");
+
+        private final String label;
+
+        ThreeTickFrequencyMode(String label) {
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+
+        public boolean startsInThreeTick() {
+            return this != NEVER;
+        }
+
+        public boolean switchingEnabled() {
+            return this == MOSTLY || this == SOMETIMES;
+        }
+
+        public static ThreeTickFrequencyMode fromOptionString(String value) {
+            if (value != null) {
+                for (ThreeTickFrequencyMode mode : values()) {
+                    if (mode.label.equalsIgnoreCase(value.trim())) {
+                        return mode;
+                    }
+                }
+            }
+            return SOMETIMES;
+        }
+    }
+
     // Simple poll-driven scheduling
     private NextAction nextAction = NextAction.CLICK_SPOT;
     private long actionGateGT = -1;
@@ -42,6 +93,11 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private boolean tickFishing = true;
     private long modeExpiresAtMs = 0L;
     private boolean switchQueued = false;
+    private ThreeTickFrequencyMode frequencyMode = ThreeTickFrequencyMode.SOMETIMES;
+    private boolean switchingEnabled = true;
+    private long startTimeMs = 0L;
+    private long currentModeEnteredAtMs = 0L;
+    private long threeTickAccumulatedMs = 0L;
 
     @Override
     public void onStart() {
@@ -57,9 +113,21 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             clearPaints();
         } catch (Exception ignored) {
         }
-        fishingMode = FishingMode.THREE_TICK;
-        tickFishing = true;
-        scheduleNextWindow();
+        Object optionValue = getOption("3Tick Frequency Mode");
+        String optionString = optionValue == null ? ThreeTickFrequencyMode.SOMETIMES.label() : optionValue.toString();
+        frequencyMode = ThreeTickFrequencyMode.fromOptionString(optionString);
+        switchingEnabled = frequencyMode.switchingEnabled();
+        fishingMode = frequencyMode.startsInThreeTick() ? FishingMode.THREE_TICK : FishingMode.NORMAL;
+        tickFishing = fishingMode == FishingMode.THREE_TICK;
+        long now = System.currentTimeMillis();
+        startTimeMs = now;
+        currentModeEnteredAtMs = now;
+        threeTickAccumulatedMs = 0L;
+        if (switchingEnabled) {
+            scheduleNextWindow();
+        } else {
+            modeExpiresAtMs = 0L;
+        }
         switchQueued = false;
         addPaint(PaintBuilder.newBuilder()
                 .x(20)
@@ -68,7 +136,9 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
                 .trackSkill(Skill.Agility)
                 .trackSkill(Skill.Strength)
                 .addString("Mode: ", () -> tickFishing ? "3Tick Fishing" : "Normal Fishing")
-                .addString("Switch mode in: ", () -> formatMs(modeExpiresAtMs - System.currentTimeMillis()))
+                .addString("3T Frequency: ", () -> frequencyMode.label())
+                .addString("Time (%) Spent 3Ticking: ", this::formatThreeTickShare)
+                .addString("Switch mode in: ", this::formatSwitchCountdown)
                 .build());
         // Initialize tick cycle
         targetSpotTile = null;
@@ -97,10 +167,18 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             clearPaints();
         } catch (Exception ignored) {
         }
+        if (tickFishing && currentModeEnteredAtMs > 0) {
+            threeTickAccumulatedMs += Math.max(0L, System.currentTimeMillis() - currentModeEnteredAtMs);
+        }
         fishingMode = FishingMode.THREE_TICK;
         tickFishing = true;
         switchQueued = false;
         modeExpiresAtMs = 0L;
+        frequencyMode = ThreeTickFrequencyMode.SOMETIMES;
+        switchingEnabled = true;
+        startTimeMs = 0L;
+        currentModeEnteredAtMs = 0L;
+        threeTickAccumulatedMs = 0L;
     }
 
     @Override
@@ -111,7 +189,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     @Override
     public void poll() {
         long now = System.currentTimeMillis();
-        if (!switchQueued && modeExpiresAtMs > 0 && now >= modeExpiresAtMs) {
+        if (switchingEnabled && !switchQueued && modeExpiresAtMs > 0 && now >= modeExpiresAtMs) {
             switchQueued = true;
             dbgSched("mode", "Mode switch queued");
         }
@@ -263,26 +341,58 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     }
 
     private long rollThreeTickDurationMs() {
-        return Random.nextInt(30_000, 120_000);
+        switch (frequencyMode) {
+            case ALWAYS:
+            case MOSTLY:
+                return Random.nextInt(90_000, 180_000);
+            case SOMETIMES:
+                return Random.nextInt(30_000, 90_000);
+            case NEVER:
+            default:
+                return Random.nextInt(30_000, 90_000);
+        }
     }
 
     private long rollNormalDurationMs() {
-        return Random.nextInt(120_000, 300_000);
+        switch (frequencyMode) {
+            case MOSTLY:
+                return Random.nextInt(30_000, 90_000);
+            case SOMETIMES:
+                return Random.nextInt(180_000, 300_000);
+            case NEVER:
+                return Random.nextInt(180_000, 300_000);
+            case ALWAYS:
+            default:
+                return Random.nextInt(30_000, 90_000);
+        }
     }
 
     private void scheduleNextWindow() {
+        if (!switchingEnabled) {
+            modeExpiresAtMs = 0L;
+            return;
+        }
         long duration = tickFishing ? rollThreeTickDurationMs() : rollNormalDurationMs();
         modeExpiresAtMs = System.currentTimeMillis() + duration;
     }
 
     private void setFishingMode(FishingMode mode) {
+        long now = System.currentTimeMillis();
+        boolean wasThreeTick = tickFishing;
+        if (wasThreeTick && currentModeEnteredAtMs > 0) {
+            threeTickAccumulatedMs += Math.max(0L, now - currentModeEnteredAtMs);
+        }
         fishingMode = mode;
         tickFishing = mode == FishingMode.THREE_TICK;
+        currentModeEnteredAtMs = now;
         scheduleNextWindow();
         dbgSched("mode", "Switched to " + (tickFishing ? "3Tick Fishing" : "Normal Fishing"));
     }
 
     private void toggleMode() {
+        if (!switchingEnabled) {
+            return;
+        }
         setFishingMode(tickFishing ? FishingMode.NORMAL : FishingMode.THREE_TICK);
     }
 
@@ -291,6 +401,9 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             return;
         }
         switchQueued = false;
+        if (!switchingEnabled) {
+            return;
+        }
         toggleMode();
         if (tickFishing) {
             nextAction = NextAction.SELECT_TAR;
@@ -307,6 +420,30 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         long minutes = totalSeconds / 60;
         long seconds = totalSeconds % 60;
         return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    private String formatSwitchCountdown() {
+        if (!switchingEnabled) {
+            return "N/A";
+        }
+        return formatMs(modeExpiresAtMs - System.currentTimeMillis());
+    }
+
+    private String formatThreeTickShare() {
+        if (startTimeMs <= 0) {
+            return "0.0%";
+        }
+        long now = System.currentTimeMillis();
+        long total = Math.max(1L, now - startTimeMs);
+        long threeTickTime = threeTickAccumulatedMs;
+        if (tickFishing && currentModeEnteredAtMs > 0) {
+            threeTickTime += Math.max(0L, now - currentModeEnteredAtMs);
+        }
+        double share = (double) threeTickTime / (double) total * 100.0;
+        if (share < 0.0) {
+            share = 0.0;
+        }
+        return String.format(Locale.ENGLISH, "%.1f%%", share);
     }
 
     private void handleClickSpotFailure() {
