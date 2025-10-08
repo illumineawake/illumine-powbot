@@ -12,6 +12,10 @@ import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptManifest;
 import org.powbot.api.script.paint.PaintBuilder;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 @ScriptManifest(
         name = "Simple Barb 3T",
         description = "Barebones 3-tick barbarian fishing using Guam leaf + Swamp tar",
@@ -27,14 +31,25 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
 
     private enum NextAction {CLICK_SPOT, SELECT_TAR, COMBINE_HERB, DROP_ONE}
 
+    private enum FishingMode {THREE_TICK, NORMAL}
+
     // Simple poll-driven scheduling
     private NextAction nextAction = NextAction.CLICK_SPOT;
     private long actionGateGT = -1;
     private String lastSpotSource = "";
     private long tickCount = 0;
+    private FishingMode fishingMode = FishingMode.THREE_TICK;
+    private boolean tickFishing = true;
+    private long modeExpiresAtMs = 0L;
+    private boolean switchQueued = false;
 
     @Override
     public void onStart() {
+        if (!hasLevelRequirements()) {
+            getLog().info("[SimpleBarb3T] Barbarian Fishing level requirements not met. You need all of: 48 Fishing, 15 Strength, 15 Agility.");
+            getController().stop();
+            return;
+        }
         if (getLog() != null) {
             getLog().info("[SimpleBarb3T] starting");
         }
@@ -42,12 +57,18 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             clearPaints();
         } catch (Exception ignored) {
         }
+        fishingMode = FishingMode.THREE_TICK;
+        tickFishing = true;
+        scheduleNextWindow();
+        switchQueued = false;
         addPaint(PaintBuilder.newBuilder()
                 .x(20)
                 .y(40)
                 .trackSkill(Skill.Fishing)
                 .trackSkill(Skill.Agility)
                 .trackSkill(Skill.Strength)
+                .addString("Mode: ", () -> tickFishing ? "3Tick Fishing" : "Normal Fishing")
+                .addString("Switch mode in: ", () -> formatMs(modeExpiresAtMs - System.currentTimeMillis()))
                 .build());
         // Initialize tick cycle
         targetSpotTile = null;
@@ -76,19 +97,39 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             clearPaints();
         } catch (Exception ignored) {
         }
+        fishingMode = FishingMode.THREE_TICK;
+        tickFishing = true;
+        switchQueued = false;
+        modeExpiresAtMs = 0L;
     }
 
     @Override
     public boolean canBreak() {
-        return nextAction == NextAction.SELECT_TAR || nextAction == NextAction.COMBINE_HERB;
+        return nextAction == NextAction.SELECT_TAR || nextAction == NextAction.COMBINE_HERB || !tickFishing;
     }
 
     @Override
     public void poll() {
-        if (!hasItem("Swamp tar") || !hasItem("Feather")) {
-            logOnce("Stopping", "Missing Swamp Tar or Feathers");
+        long now = System.currentTimeMillis();
+        if (!switchQueued && modeExpiresAtMs > 0 && now >= modeExpiresAtMs) {
+            switchQueued = true;
+            dbgSched("mode", "Mode switch queued");
+        }
+
+        String missingItem = missingItem();
+
+        if (!missingItem.isBlank()) {
+            logOnce("Stopping", "Missing item" + missingItem);
+            getController().stop();
             return;
         }
+
+        if (!tickFishing) {
+            handleNormalMode();
+            return;
+        }
+
+        Inventory.disableShiftDropping();
 
         if (!hasItem(HERB_NAME)) {
             if (cleanHerb()) {
@@ -180,6 +221,21 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         return nearest;
     }
 
+    private String missingItem() {
+        if (!hasItem("Swamp tar")) {
+            return "Swamp tar";
+        }
+
+        if (!hasItem("Feather")) {
+            return "Feather";
+        }
+
+        if (!hasItem("Barbarian rod")) {
+            return "Barbarian rod";
+        }
+        return "";
+    }
+
     private boolean hasItem(String name) {
         Item item = Inventory.stream().name(name).first();
         return item.valid();
@@ -206,6 +262,70 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         getLog().info("[SimpleBarb3T][EXEC] t=" + tickCount + " | " + category + " | " + message);
     }
 
+    private long rollThreeTickDurationMs() {
+        return Random.nextInt(30_000, 120_000);
+    }
+
+    private long rollNormalDurationMs() {
+        return Random.nextInt(120_000, 300_000);
+    }
+
+    private void scheduleNextWindow() {
+        long duration = tickFishing ? rollThreeTickDurationMs() : rollNormalDurationMs();
+        modeExpiresAtMs = System.currentTimeMillis() + duration;
+    }
+
+    private void setFishingMode(FishingMode mode) {
+        fishingMode = mode;
+        tickFishing = mode == FishingMode.THREE_TICK;
+        scheduleNextWindow();
+        dbgSched("mode", "Switched to " + (tickFishing ? "3Tick Fishing" : "Normal Fishing"));
+    }
+
+    private void toggleMode() {
+        setFishingMode(tickFishing ? FishingMode.NORMAL : FishingMode.THREE_TICK);
+    }
+
+    private void consumeSwitchQueueAfterClick() {
+        if (!switchQueued) {
+            return;
+        }
+        switchQueued = false;
+        toggleMode();
+        if (tickFishing) {
+            nextAction = NextAction.SELECT_TAR;
+        } else {
+            nextAction = NextAction.CLICK_SPOT;
+        }
+    }
+
+    private String formatMs(long msRemaining) {
+        if (msRemaining <= 0) {
+            return "00:00";
+        }
+        long totalSeconds = msRemaining / 1000;
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    private void handleClickSpotFailure() {
+        Player local = Players.local();
+        if (local == null) {
+            return;
+        }
+        if (local.animation() != -1 && (currentFishSpot == null || !currentFishSpot.valid())) {
+            stepToAdjacentTile();
+            Condition.sleep(Random.nextInt(1000, 5000));
+            return;
+        }
+        if (currentFishSpot != null && currentFishSpot.valid()) {
+            Movement.builder(currentFishSpot)
+                    .setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5)
+                    .move();
+        }
+    }
+
     private boolean dropOneLeapingFish() {
         if (Inventory.stream().nameContains("Leaping").count() <= 1) {
             return false;
@@ -217,6 +337,77 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             return true;
         }
         return false;
+    }
+
+    private void handleNormalMode() {
+        if (tickCount <= actionGateGT) {
+            return;
+        }
+
+        if (Inventory.isFull()) {
+            randomizedDropAllLeapingFish();
+            actionGateGT = tickCount;
+            return;
+        }
+
+        Player local = Players.local();
+        boolean currentlyAnimating = local != null && local.animation() != -1;
+        if (currentlyAnimating && currentFishSpot != null && currentFishSpot.valid()) {
+            return;
+        }
+
+        dbgExec("normal_mode", "t=" + tickCount + " | click spot: attempt");
+        boolean success = clickFishingSpot();
+        dbgExec("normal_mode", "t=" + tickCount + " | click spot: " + success);
+        if (success) {
+            consumeSwitchQueueAfterClick();
+            actionGateGT = tickCount;
+        } else {
+            handleClickSpotFailure();
+            actionGateGT = tickCount;
+        }
+    }
+
+    private void randomizedDropAllLeapingFish() {
+        List<Item> rawLeaping = Inventory.stream().nameContains("Leaping").list();
+        if (rawLeaping.isEmpty()) {
+            return;
+        }
+        List<Item> leapingFish = new ArrayList<>(rawLeaping);
+        leapingFish.removeIf(item -> item == null || !item.valid());
+        if (leapingFish.isEmpty()) {
+            return;
+        }
+
+        Inventory.open();
+
+        int roll = Random.nextInt(0, 100);
+        if (roll < 34) {
+            Inventory.enableShiftDropping();
+            Inventory.drop(leapingFish);
+        } else if (roll < 67) {
+            Collections.shuffle(leapingFish);
+            for (Item fish : leapingFish) {
+                if (!fish.valid()) {
+                    continue;
+                }
+                Inventory.drop(fish, false);
+                Condition.sleep(Random.nextInt(50, 180));
+            }
+        } else {
+            Collections.shuffle(leapingFish);
+            boolean shiftEnabled = Inventory.shiftDroppingEnabled() || Inventory.enableShiftDropping();
+            for (Item fish : leapingFish) {
+                if (!fish.valid()) {
+                    continue;
+                }
+                boolean useShift = shiftEnabled && Random.nextBoolean();
+                Inventory.drop(fish, useShift);
+                Condition.sleep(Random.nextInt(60, 200));
+            }
+        }
+        Inventory.disableShiftDropping();
+        Condition.sleep(Random.nextInt(200, 600));
     }
 
     public static void main(String[] args) {
@@ -232,13 +423,15 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         boolean success = clickFishingSpot();
         dbgExec("poll", "t=" + tickCount + " | click spot: " + (success ? "success" : "failed"));
         if (success) {
+            consumeSwitchQueueAfterClick();
             actionGateGT = tickCount;
-            nextAction = NextAction.SELECT_TAR;
-        } else if (Players.local().animation() != -1 && !currentFishSpot.valid()) {
-            stepToAdjacentTile();
-            Condition.sleep(Random.nextInt(1000, 5000));
+            if (tickFishing) {
+                nextAction = NextAction.SELECT_TAR;
+            } else {
+                nextAction = NextAction.CLICK_SPOT;
+            }
         } else {
-            Movement.builder(currentFishSpot).setWalkUntil(() -> Players.local().distanceTo(currentFishSpot) < 5).move();
+            handleClickSpotFailure();
         }
     }
 
@@ -324,6 +517,12 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             return n.matrix().click();
         }
         return false;
+    }
+
+    private boolean hasLevelRequirements() {
+        return Skill.Fishing.realLevel() >= 48 &&
+                Skill.Strength.realLevel() >= 15 &&
+                Skill.Agility.realLevel() >= 15;
     }
 
 }
