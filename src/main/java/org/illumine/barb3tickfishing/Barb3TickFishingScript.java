@@ -20,6 +20,7 @@ import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptConfiguration;
 import org.powbot.api.script.ScriptManifest;
 import org.powbot.api.script.ValueChanged;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -81,6 +82,7 @@ public class Barb3TickFishingScript extends AbstractScript {
 
     private Tile targetSpotTile = null;
     private Npc currentFishSpot = null;
+    private Tile scriptStartTile = null;
 
     private enum NextAction {CLICK_SPOT, SELECT_TAR, COMBINE_HERB, DROP_ONE}
 
@@ -102,6 +104,7 @@ public class Barb3TickFishingScript extends AbstractScript {
     private void resetState() {
         targetSpotTile = null;
         currentFishSpot = null;
+        scriptStartTile = null;
         nextAction = NextAction.CLICK_SPOT;
         actionGateGT = -1;
         lastSpotSource = "";
@@ -127,6 +130,9 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
 
         resetState();
+        Player local = Players.local();
+        scriptStartTile = local.tile();
+
         config.initialize();
         suppliesManager.setHerbName(config.herbName());
         worldHopController.initialize();
@@ -296,7 +302,7 @@ public class Barb3TickFishingScript extends AbstractScript {
     private String lastLoggedMessage = "";
 
     void log(String message) {
-        if (getLog() == null || message == null) {
+        if (getLogger() == null || message == null) {
             return;
         }
         String formatted = "[illu3TBarb] " + message;
@@ -304,7 +310,7 @@ public class Barb3TickFishingScript extends AbstractScript {
             return;
         }
         lastLoggedMessage = formatted;
-        getLog().info(formatted);
+        getLogger().info(formatted);
     }
 
     String formatSwitchCountdown() {
@@ -371,12 +377,20 @@ public class Barb3TickFishingScript extends AbstractScript {
 
     private void handleClickSpotFailure() {
         Player local = Players.local();
-        if (local == null) {
-            return;
-        }
         if (local.animation() != -1 && (currentFishSpot == null || !currentFishSpot.valid())) {
             stepToAdjacentTile();
             Condition.sleep(Random.nextInt(1000, 5000));
+            return;
+        }
+        if (local.animation() == -1 && (currentFishSpot == null || !currentFishSpot.valid())) {
+            if (scriptStartTile == null) {
+                scriptStartTile = local.tile();
+            }
+            if (!local.tile().equals(scriptStartTile)) {
+                Movement.moveTo(scriptStartTile);
+                log("t=" + tickCount + " moving: returning to start tile " + scriptStartTile);
+            }
+            Condition.sleep(Random.nextInt(500, 5000));
             return;
         }
         if (currentFishSpot != null && currentFishSpot.valid()) {
@@ -411,7 +425,7 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
 
         Player local = Players.local();
-        boolean currentlyAnimating = local.animation() != -1;
+        boolean currentlyAnimating = local != null && local.animation() != -1;
         if (currentlyAnimating && currentFishSpot != null && currentFishSpot.valid()) {
             return;
         }

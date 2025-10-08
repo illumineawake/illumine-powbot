@@ -27,4 +27,5 @@ dependencies {
     implementation('org.powbot:client-sdk-loader:3.0.0-SNAPSHOT') // Can replace with `implementation('org.powbot:client-sdk-loader:3+')` where + tries to pull the latest version
     implementation('com.google.guava:guava:31.1-jre') // needed for @Subscribe annotations / event bus
     implementation('com.fasterxml.jackson.core:jackson-core:2.13.0')
+    implementation('org.slf4j:slf4j-api:2.0.9')
 }
