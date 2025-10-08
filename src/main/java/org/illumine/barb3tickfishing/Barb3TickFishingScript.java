@@ -116,13 +116,11 @@ public class Barb3TickFishingScript extends AbstractScript {
     @Override
     public void onStart() {
         if (!hasLevelRequirements()) {
-            getLog().info("[SimpleBarb3T] Barbarian Fishing level requirements not met. You need all of: 48 Fishing, 15 Strength, 15 Agility.");
+            log("t=" + tickCount + " stopping script: Barbarian Fishing level requirements not met. You need all of: 48 Fishing, 15 Strength, 15 Agility.");
             getController().stop();
             return;
         }
-        if (getLog() != null) {
-            getLog().info("[SimpleBarb3T] starting");
-        }
+        log("t=" + tickCount + " starting script");
         try {
             clearPaints();
         } catch (Exception ignored) {
@@ -142,19 +140,15 @@ public class Barb3TickFishingScript extends AbstractScript {
         paint.apply();
 
         if (Camera.getZoom() > 1) {
-            logOnce("Camera", "Current Zoom level is: " + Camera.getZoom());
             Camera.moveZoomSlider(0);
             Condition.sleep(Random.nextInt(500, 2000));
         }
         Inventory.open();
-        dbgSched("init", "initialized");
     }
 
     @Override
     public void onStop() {
-        if (getLog() != null) {
-            getLog().info("[SimpleBarb3T] stopped");
-        }
+        log("t=" + tickCount + " stopped script");
         try {
             clearPaints();
         } catch (Exception ignored) {
@@ -180,12 +174,11 @@ public class Barb3TickFishingScript extends AbstractScript {
 
         if (config.switchingEnabled() && !modeScheduler.switchQueued() && modeScheduler.modeExpiresAtMs() > 0 && now >= modeScheduler.modeExpiresAtMs()) {
             modeScheduler.queueSwitch();
-            dbgSched("mode", "Mode switch queued");
         }
 
         String coreMissing = missingCoreItem();
         if (!coreMissing.isBlank()) {
-            logOnce("Stopping", "Missing item " + coreMissing);
+            log("t=" + tickCount + " stopping script: Missing item " + coreMissing);
             getController().stop();
             return;
         }
@@ -238,22 +231,22 @@ public class Barb3TickFishingScript extends AbstractScript {
     private boolean clickFishingSpot() {
         currentFishSpot = findSpotAtTargetOrNearest();
         if (!currentFishSpot.valid()) {
-            logOnce("spot", "No fishing spot found");
+            log("No fishing spot found");
             return false;
         }
         targetSpotTile = currentFishSpot.tile();
 
         if (targetSpotTile.distanceTo(Players.local()) >= 5) {
-            logOnce("spot", "Moved far away, moving to it.");
+            log("Moved far away from target spot, repositioning");
             return false;
         }
 
-        dbgExec("clicking_spot", "id=" + currentFishSpot.id() + ", source=" + lastSpotSource + ", tile=" + targetSpotTile);
         boolean ok = currentFishSpot.interact("Use-rod", false);
-        if (!ok) {
-            dbgExec("click", "interact returned false");
-        } else if (Players.local().distanceTo(targetSpotTile) > 1) {
-            Condition.wait(() -> Players.local().distanceTo(targetSpotTile) <= 1, 150, 20);
+        if (ok) {
+            log("t=" + tickCount + " fishing: clicked spot");
+            if (Players.local().distanceTo(targetSpotTile) > 1) {
+                Condition.wait(() -> Players.local().distanceTo(targetSpotTile) <= 1, 150, 20);
+            }
         }
         return ok;
     }
@@ -300,25 +293,18 @@ public class Barb3TickFishingScript extends AbstractScript {
         return item.valid();
     }
 
-    private String lastLogKey = "";
+    private String lastLoggedMessage = "";
 
-    void logOnce(String category, String message) {
-        if (getLog() == null || message == null) return;
-        String key = category + "|t=" + tickCount + "|" + message;
-        if (!key.equals(lastLogKey)) {
-            lastLogKey = key;
-            getLog().info("[SimpleBarb3T] t=" + tickCount + " " + category + ": " + message);
+    void log(String message) {
+        if (getLog() == null || message == null) {
+            return;
         }
-    }
-
-    void dbgSched(String category, String message) {
-        if (getLog() == null || message == null) return;
-        getLog().info("[SimpleBarb3T][SCHED] t=" + tickCount + " | " + category + " | " + message);
-    }
-
-    void dbgExec(String category, String message) {
-        if (getLog() == null || message == null) return;
-        getLog().info("[SimpleBarb3T][EXEC] t=" + tickCount + " | " + category + " | " + message);
+        String formatted = "[illu3TBarb] " + message;
+        if (formatted.equals(lastLoggedMessage)) {
+            return;
+        }
+        lastLoggedMessage = formatted;
+        getLog().info(formatted);
     }
 
     String formatSwitchCountdown() {
@@ -352,6 +338,7 @@ public class Barb3TickFishingScript extends AbstractScript {
             threeTickAccumulatedMs += Math.max(0L, now - currentModeEnteredAtMs);
         }
         modeScheduler.setFishingMode(mode);
+        log("t=" + tickCount + " mode: switched to " + mode.name().toLowerCase(Locale.ENGLISH));
         currentModeEnteredAtMs = now;
     }
 
@@ -424,14 +411,12 @@ public class Barb3TickFishingScript extends AbstractScript {
         }
 
         Player local = Players.local();
-        boolean currentlyAnimating = local != null && local.animation() != -1;
+        boolean currentlyAnimating = local.animation() != -1;
         if (currentlyAnimating && currentFishSpot != null && currentFishSpot.valid()) {
             return;
         }
 
-        dbgExec("normal_mode", "t=" + tickCount + " | click spot: attempt");
         boolean success = clickFishingSpot();
-        dbgExec("normal_mode", "t=" + tickCount + " | click spot: " + success);
         if (success) {
             consumeSwitchQueueAfterClick();
             actionGateGT = tickCount;
@@ -457,6 +442,7 @@ public class Barb3TickFishingScript extends AbstractScript {
         Inventory.drop(leapingFish);
         Inventory.disableShiftDropping();
         Condition.sleep(Random.nextInt(200, 3000));
+        log("t=" + tickCount + " dropping: dropped all leaping fish");
     }
 
     private void handleClickSpot() {
@@ -464,9 +450,7 @@ public class Barb3TickFishingScript extends AbstractScript {
             return;
         }
 
-        dbgExec("poll", "t=" + tickCount + " | click spot: attempt");
         boolean success = clickFishingSpot();
-        dbgExec("poll", "t=" + tickCount + " | click spot: " + (success ? "success" : "failed"));
         if (success) {
             consumeSwitchQueueAfterClick();
             actionGateGT = tickCount;
@@ -485,12 +469,11 @@ public class Barb3TickFishingScript extends AbstractScript {
             return;
         }
         Inventory.open();
-        dbgExec("poll", "t=" + tickCount + " | select tar: attempt");
         Item tar = Inventory.stream().name("Swamp tar").first();
         boolean success = tar.valid() && tar.click();
-        dbgExec("poll", "t=" + tickCount + " | select tar: " + success);
         actionGateGT = tickCount;
         if (success) {
+            log("t=" + tickCount + " combining: selected swamp tar");
             nextAction = NextAction.COMBINE_HERB;
         }
     }
@@ -499,12 +482,11 @@ public class Barb3TickFishingScript extends AbstractScript {
         if (tickCount <= actionGateGT) {
             return;
         }
-        dbgExec("poll", "t=" + tickCount + " | combine herb: attempt");
         Item herb = Inventory.stream().name(suppliesManager.herbName()).first();
         boolean success = herb.valid() && herb.click();
-        dbgExec("poll", "t=" + tickCount + " | combine herb: " + success);
         actionGateGT = tickCount;
         if (success) {
+            log("t=" + tickCount + " combining: used herb");
             nextAction = NextAction.DROP_ONE;
             Condition.sleep(Random.nextInt(20, 35));
             handleDropOne();
@@ -514,7 +496,9 @@ public class Barb3TickFishingScript extends AbstractScript {
     private void handleDropOne() {
         nextAction = NextAction.CLICK_SPOT;
         boolean success = dropOneLeapingFish();
-        dbgExec("poll", "t=" + tickCount + " | drop one leaping=" + success);
+        if (success) {
+            log("t=" + tickCount + " dropping: dropped one leaping fish");
+        }
     }
 
     private boolean stepToAdjacentTile() {
@@ -528,7 +512,6 @@ public class Barb3TickFishingScript extends AbstractScript {
                     me.derive(1, 1), me.derive(1, -1), me.derive(-1, 1), me.derive(-1, -1)
             };
         } catch (Throwable t) {
-            dbgExec("adjacent_gen", "failed to derive neighbours: " + t.getMessage());
             return false;
         }
 
@@ -540,7 +523,7 @@ public class Barb3TickFishingScript extends AbstractScript {
             if (!n.reachable()) {
                 continue;
             }
-            logOnce("Cancelling", "Stepping to nearby tile: " + n);
+            log("Stepping to nearby tile: " + n);
             return n.matrix().click();
         }
         return false;
@@ -589,6 +572,10 @@ public class Barb3TickFishingScript extends AbstractScript {
     public void onWorldHopIntervalChanged(Integer minutes) {
         int parsed = ScriptOptionParser.asInt(minutes, worldHopController.hopIntervalMinutes(), 1);
         worldHopController.setHopIntervalMinutes(parsed);
+    }
+
+    long currentTick() {
+        return tickCount;
     }
 
     Barb3TickConfig getConfig() {
