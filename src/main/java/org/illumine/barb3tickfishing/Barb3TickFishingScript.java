@@ -22,8 +22,11 @@ import org.powbot.api.script.ScriptManifest;
 import org.powbot.api.script.ValueChanged;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ThreadLocalRandom;
 
 @ScriptConfiguration(
         name = "3Tick Frequency Mode",
@@ -81,6 +84,15 @@ public class Barb3TickFishingScript extends AbstractScript {
     private final SuppliesManager suppliesManager = new SuppliesManager(this);
     private final Barb3TickPaint paint = new Barb3TickPaint(this);
 
+    private static final List<DropPattern> DROP_PATTERNS = List.of(
+            DropPattern.LEFT_TO_RIGHT,
+            DropPattern.RIGHT_TO_LEFT,
+            DropPattern.TOP_TO_BOTTOM,
+            DropPattern.RANDOM
+    );
+    private DropPattern selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
+    private int playerNameLengthForPattern = 0;
+
     private Tile targetSpotTile = null;
     private Npc currentFishSpot = null;
     private Tile scriptStartTile = null;
@@ -133,6 +145,9 @@ public class Barb3TickFishingScript extends AbstractScript {
         resetState();
         Player local = Players.local();
         scriptStartTile = local.tile();
+        selectedDropPattern = resolveDropPatternForPlayer(local);
+        log("t=" + tickCount + " dropping: pattern set to " + selectedDropPattern.displayName() +
+                " (name length=" + playerNameLengthForPattern + ")");
 
         config.initialize();
         suppliesManager.setHerbName(config.herbName());
@@ -460,13 +475,30 @@ public class Barb3TickFishingScript extends AbstractScript {
         if (leapingFish.isEmpty()) {
             return;
         }
-        Condition.sleep(Random.nextInt(200, 3000));
+        Condition.sleep(Random.nextInt(50, 3000));
         Inventory.open();
         Inventory.enableShiftDropping();
-        Inventory.drop(leapingFish);
-        Inventory.disableShiftDropping();
-        Condition.sleep(Random.nextInt(200, 3000));
-        log("t=" + tickCount + " dropping: dropped all leaping fish");
+        int dropCount = 0;
+        try {
+            List<Item> dropOrder = selectedDropPattern.orderItems(leapingFish);
+            for (Item fish : dropOrder) {
+                if (fish == null || !fish.valid()) {
+                    continue;
+                }
+                if (fish.interact("Drop", false)) {
+                    dropCount++;
+                    Condition.sleep(Random.nextInt(25, 220));
+                } else {
+                    Condition.sleep(Random.nextInt(75, 150));
+                }
+            }
+        } finally {
+            Inventory.disableShiftDropping();
+        }
+        Condition.sleep(Random.nextInt(50, 3000));
+        if (dropCount > 0) {
+            log("t=" + tickCount + " dropping: dropped " + dropCount + " leaping fish using " + selectedDropPattern.displayName());
+        }
     }
 
     private void handleClickSpot() {
@@ -612,5 +644,65 @@ public class Barb3TickFishingScript extends AbstractScript {
 
     boolean isTickFishing() {
         return modeScheduler.tickFishing();
+    }
+
+    private DropPattern resolveDropPatternForPlayer(Player player) {
+        playerNameLengthForPattern = 0;
+        String rawName = player.name();
+        if (rawName.isEmpty()) {
+            return DROP_PATTERNS.get(0);
+        }
+        playerNameLengthForPattern = rawName.length();
+        int patternIndex = Math.floorMod(playerNameLengthForPattern, DROP_PATTERNS.size());
+        return DROP_PATTERNS.get(patternIndex);
+    }
+
+    private enum DropPattern {
+        LEFT_TO_RIGHT("left to right") {
+            @Override
+            List<Item> orderItems(List<Item> items) {
+                List<Item> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator.comparingInt(Item::inventoryIndex));
+                return ordered;
+            }
+        },
+        RIGHT_TO_LEFT("right to left") {
+            @Override
+            List<Item> orderItems(List<Item> items) {
+                List<Item> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator.comparingInt(Item::inventoryIndex).reversed());
+                return ordered;
+            }
+        },
+        TOP_TO_BOTTOM("top to bottom") {
+            @Override
+            List<Item> orderItems(List<Item> items) {
+                List<Item> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator
+                        .comparingInt((Item item) -> Inventory.inventoryRow(item.inventoryIndex()))
+                        .thenComparingInt(item -> Inventory.inventoryColumn(item.inventoryIndex())));
+                return ordered;
+            }
+        },
+        RANDOM("random") {
+            @Override
+            List<Item> orderItems(List<Item> items) {
+                List<Item> ordered = new ArrayList<>(items);
+                Collections.shuffle(ordered, ThreadLocalRandom.current());
+                return ordered;
+            }
+        };
+
+        private final String displayName;
+
+        DropPattern(String displayName) {
+            this.displayName = displayName;
+        }
+
+        abstract List<Item> orderItems(List<Item> items);
+
+        String displayName() {
+            return displayName;
+        }
     }
 }
