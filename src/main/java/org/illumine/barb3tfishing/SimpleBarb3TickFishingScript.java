@@ -1,12 +1,20 @@
 package org.illumine.barb3tfishing;
 
+import org.powbot.api.Condition;
+import org.powbot.api.Random;
+import org.powbot.api.event.NpcAnimationChangedEvent;
 import org.powbot.api.rt4.*;
 import org.powbot.api.Tile;
+import org.powbot.api.rt4.stream.item.ItemStream;
+import org.powbot.api.rt4.walking.model.Skill;
 import org.powbot.api.script.AbstractScript;
 import org.powbot.api.script.ScriptCategory;
 import org.powbot.api.script.ScriptManifest;
 import com.google.common.eventbus.Subscribe;
 import org.powbot.api.event.TickEvent;
+import org.powbot.api.script.paint.PaintBuilder;
+import org.powbot.mobile.script.ScriptManager;
+
 import java.util.List;
 
 @ScriptManifest(
@@ -17,19 +25,18 @@ import java.util.List;
         version = "0.0.1"
 )
 public class SimpleBarb3TickFishingScript extends AbstractScript {
-    // Prefer first-option on specific barbarian spot IDs over action text
-    private static final int[] BARB_SPOT_IDS = new int[]{1542, 7323};
     private static final String HERB_NAME = "Guam leaf";
-    private static final String TAR_NAME = "Swamp tar";
 
     private Tile targetSpotTile = null;
-    private enum NextAction { CLICK_SPOT, SELECT_TAR, COMBINE_HERB, DROP_ONE }
+    private Npc currentFishSpot = null;
+
+    private enum NextAction {CLICK_SPOT, SELECT_TAR, COMBINE_HERB, DROP_ONE}
 
     // Simple poll-driven scheduling
     private NextAction nextAction = NextAction.CLICK_SPOT;
-    private long actionGateGT = -1L;
+    private long actionGateGT = -1;
     private String lastSpotSource = "";
-    private long tickCount = 0L;
+    private long tickCount = 0;
 
     @Override
     public void onStart() {
@@ -38,19 +45,24 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         }
         try {
             clearPaints();
-        } catch (Exception ignored) { }
-        addPaint(org.powbot.api.script.paint.PaintBuilder.newBuilder()
+        } catch (Exception ignored) {
+        }
+        addPaint(PaintBuilder.newBuilder()
                 .x(20)
                 .y(40)
-                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Fishing)
-                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Agility)
-                .trackSkill(org.powbot.api.rt4.walking.model.Skill.Strength)
+                .trackSkill(Skill.Fishing)
+                .trackSkill(Skill.Agility)
+                .trackSkill(Skill.Strength)
                 .build());
         // Initialize tick cycle
         targetSpotTile = null;
+        currentFishSpot = null;
         nextAction = NextAction.CLICK_SPOT;
-        actionGateGT = -1L;
-        tickCount = 0L;
+        actionGateGT = -1;
+        tickCount = 0;
+        if (Camera.getZoom() > 0) {
+            Camera.moveZoomSlider(0);
+        }
         if (!Inventory.opened()) {
             Inventory.open();
         }
@@ -63,18 +75,35 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             getLog().info("[SimpleBarb3T] stopped");
         }
         targetSpotTile = null;
+        currentFishSpot = null;
         nextAction = NextAction.CLICK_SPOT;
         actionGateGT = -1;
         try {
             clearPaints();
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    public boolean canBreak() {
+        return nextAction == NextAction.SELECT_TAR || nextAction == NextAction.COMBINE_HERB;
     }
 
     @Override
     public void poll() {
-        // Supplies check; skip if unavailable
-        if (!hasItem(HERB_NAME) || !hasItem(TAR_NAME)) {
+        if (!hasItem("Swamp tar") || !hasItem("Feather")) {
+            logOnce("Stopping", "Missing Swamp Tar or Feathers");
             return;
+        }
+
+        if (!hasItem(HERB_NAME)) {
+            if (cleanHerb()) {
+                Condition.sleep(Random.nextInt(200, 1000));
+                return;
+            } else {
+                logOnce("Stopping", "Missing clean herb in inventory");
+                return;
+            }
         }
 
         switch (nextAction) {
@@ -88,10 +117,6 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
             }
             case COMBINE_HERB: {
                 handleCombineHerb();
-                return;
-            }
-            case DROP_ONE: {
-                handleDropOne();
             }
         }
     }
@@ -101,18 +126,33 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         tickCount++;
     }
 
+    private boolean cleanHerb() {
+        Item cleanHerb = Inventory.stream().nameContains("Grimy").action("Clean").first();
+        if (cleanHerb.valid()) {
+            cleanHerb.interact("Clean");
+            return true;
+        }
+        return false;
+    }
+
     private boolean clickFishingSpot() {
-        Npc spot = findSpotAtTargetOrNearest();
-        if (!spot.valid()) {
+        currentFishSpot = findSpotAtTargetOrNearest();
+        if (!currentFishSpot.valid()) {
             logOnce("spot", "No fishing spot found");
             return false;
         }
+
+        if (!currentFishSpot.inViewport()) {
+            return false;
+        }
         // Lock/refresh the target to this spot's tile
-        targetSpotTile = spot.tile();
-        dbgExec("clicking_spot", "id=" + spot.id() + ", source=" + lastSpotSource + ", tile=" + targetSpotTile);
-        boolean ok = spot.interact("Use-rod", false);
+        targetSpotTile = currentFishSpot.tile();
+        dbgExec("clicking_spot", "id=" + currentFishSpot.id() + ", source=" + lastSpotSource + ", tile=" + targetSpotTile);
+        boolean ok = currentFishSpot.interact("Use-rod", false);
         if (!ok) {
             dbgExec("click", "interact returned false");
+        } else if (Players.local().distanceTo(targetSpotTile) > 1) {
+            Condition.wait(() -> Players.local().distanceTo(targetSpotTile) <= 1, 150, 20);
         }
         return ok;
     }
@@ -120,7 +160,8 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     private Npc findSpotAtTargetOrNearest() {
         if (targetSpotTile != null) {
             Npc locked = Npcs.stream()
-                    .id(BARB_SPOT_IDS)
+                    .name("Fishing spot")
+                    .action("Use-rod")
                     .at(targetSpotTile)
                     .first();
             if (locked.valid()) {
@@ -130,7 +171,8 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         }
 
         Npc nearest = Npcs.stream()
-                .id(BARB_SPOT_IDS)
+                .name("Fishing spot")
+                .action("Use-rod")
                 .nearest()
                 .first();
         if (nearest.valid()) {
@@ -149,6 +191,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
     }
 
     private String lastLogKey = "";
+
     private void logOnce(String category, String message) {
         if (getLog() == null || message == null) return;
         String key = category + "|t=" + tickCount + "|" + message;
@@ -189,17 +232,20 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         if (tickCount <= actionGateGT) {
             return;
         }
-//
-//        Item selected = Inventory.selectedItem();
-//        if (selected.valid()) {
-//            selected.interact("Cancel");
-//        }
+
         dbgExec("poll", "t=" + tickCount + " | click spot: attempt");
         boolean success = clickFishingSpot();
         dbgExec("poll", "t=" + tickCount + " | click spot: " + (success ? "success" : "failed"));
         actionGateGT = tickCount;
         if (success) {
             nextAction = NextAction.SELECT_TAR;
+        } else if (Players.local().animation() != -1) {
+//            if (!pickupFish()) {
+            stepToAdjacentTile();
+            Condition.sleep(600);
+//            }
+        } else if (currentFishSpot != null && !currentFishSpot.inViewport()) {
+            Camera.turnTo(currentFishSpot);
         }
     }
 
@@ -207,8 +253,9 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         if (tickCount <= actionGateGT) {
             return;
         }
+        Inventory.open();
         dbgExec("poll", "t=" + tickCount + " | select tar: attempt");
-        Item tar = Inventory.stream().name(TAR_NAME).first();
+        Item tar = Inventory.stream().name("Swamp tar").first();
         boolean success = tar.valid() && tar.click();
         dbgExec("poll", "t=" + tickCount + " | select tar: " + success);
         actionGateGT = tickCount;
@@ -228,6 +275,7 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         actionGateGT = tickCount;
         if (success) {
             nextAction = NextAction.DROP_ONE;
+            Condition.sleep(25);
             handleDropOne();
         }
     }
@@ -237,4 +285,52 @@ public class SimpleBarb3TickFishingScript extends AbstractScript {
         dbgExec("poll", "t=" + tickCount + " | drop one leaping=" + success);
         nextAction = NextAction.CLICK_SPOT;
     }
+
+    private boolean pickupFish() {
+        if (Inventory.isFull()) {
+            return false;
+        }
+
+        GroundItem floorFish = GroundItems.stream().nameContains("Leaping").within(1).first();
+
+        if (floorFish.valid()) {
+            return floorFish.interact("Take");
+        }
+
+        return false;
+    }
+
+    // Attempts to move to a neighbouring tile (not current tile) to cancel item mixing.
+    // Returns true if a movement action was initiated and resulted in a tile change or motion.
+    private boolean stepToAdjacentTile() {
+        Player local = Players.local();
+
+        Tile me = local.tile();
+        // Prefer cardinal directions first, then diagonals
+        Tile[] neighbours;
+        try {
+            neighbours = new Tile[]{
+                    me.derive(1, 0), me.derive(-1, 0), me.derive(0, 1), me.derive(0, -1),
+                    me.derive(1, 1), me.derive(1, -1), me.derive(-1, 1), me.derive(-1, -1)
+            };
+        } catch (Throwable t) {
+            // Fallback: if derive is unavailable, do nothing
+            dbgExec("adjacent_gen", "failed to derive neighbours: " + t.getMessage());
+            return false;
+        }
+
+        for (Tile n : neighbours) {
+            if (n == null || n.equals(me)) {
+                continue;
+            }
+
+            if (!n.reachable()) {
+                continue;
+            }
+            logOnce("Cancelling", "Stepping to nearby tile: " + n);
+            return n.matrix().click();
+        }
+        return false;
+    }
+
 }
